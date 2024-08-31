@@ -1,20 +1,33 @@
+from io import BytesIO, StringIO
+import os
+from django.conf import settings
+from django.http import HttpResponse
+from django.contrib.contenttypes.models import ContentType
+try:
+    from django.db.models.fields.related_descriptors import ManyToManyDescriptor
+except ImportError:
+    from django.db.models.fields.related import (
+        ReverseManyRelatedObjectsDescriptor as ManyToManyDescriptor
+    )
+from django.db.models import Avg, Count, Sum, Max, Min
+from openpyxl.workbook import Workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font
 import csv
-import datetime
 import re
 from collections import namedtuple
 from decimal import Decimal
-from functools import reduce
-from io import BytesIO, StringIO
 from numbers import Number
-from tempfile import NamedTemporaryFile
+from functools import reduce
+import datetime
+import zipfile
+from celery import shared_task
+from django.core.cache import cache
+from django.shortcuts import get_object_or_404
+from django.contrib.auth import get_user_model
+import logging
 
-from django.contrib.contenttypes.models import ContentType
-from django.db.models import Avg, Count, Sum, Max, Min
-from django.db.models.fields.related_descriptors import ManyToManyDescriptor
-from django.http import HttpResponse
-from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
-from openpyxl.workbook import Workbook
+logger = logging.getLogger(__name__)
 
 from .utils import (
     get_relation_fields_from_model,
@@ -29,6 +42,7 @@ DisplayField = namedtuple(
     "path path_verbose field field_verbose aggregate total group choices field_type",
 )
 
+User = get_user_model()
 
 def generate_filename(title, ends_with):
     title = title.split('.')[0]
@@ -40,6 +54,8 @@ def generate_filename(title, ends_with):
 
 
 class DataExportMixin(object):
+    max_rows = 10000  # Varsayılan maksimum satır sınırı
+
     def build_sheet(self, data, ws, sheet_name='report', header=None, widths=None):
         first_row = 1
         column_base = 1
@@ -56,63 +72,80 @@ class DataExportMixin(object):
         for row in data:
             for i in range(len(row)):
                 item = row[i]
-                # If the item is a regular string
                 if isinstance(item, str):
-                    # Change it to an unicode string
                     try:
                         row[i] = str(item)
                     except UnicodeDecodeError:
                         row[i] = str(item.decode('utf-8', 'ignore'))
-                elif type(item) is dict:
+                elif isinstance(item, dict):
                     row[i] = str(item)
-                # convert non native types to string
-                elif type(item) not in {int, float, bool}:
+                elif not isinstance(item, (int, float, bool)):
                     row[i] = str(item)
             try:
                 ws.append(row)
             except ValueError as e:
-                ws.append([e.message])
-            except:
+                ws.append([str(e)])
+            except Exception:
                 ws.append(['Unknown Error'])
 
     def build_xlsx_response(self, wb, title="report"):
-        """ Take a workbook and return an xlsx file response """
         title = generate_filename(title, '.xlsx')
-        with NamedTemporaryFile() as tmp:
-            wb.save(tmp.name)
-            tmp.seek(0)
-            stream = tmp.read()
-            stream_size = tmp.tell()
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
         response = HttpResponse(
-            stream,
+            output,
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response['Content-Disposition'] = 'attachment; filename=%s' % title
-        response['Content-Length'] = stream_size
+        response['Content-Disposition'] = f'attachment; filename={title}'
         return response
 
-    def build_csv_response(self, wb, title="report"):
-        """ Take a workbook and return a csv file response """
+    def build_csv_response(self, csv_content, title="report"):
         title = generate_filename(title, '.csv')
-        myfile = StringIO()
-        sh = wb.active
-        c = csv.writer(myfile)
-        for r in sh.rows:
-            c.writerow([cell.value for cell in r])
         response = HttpResponse(
-            myfile.getvalue(),
+            csv_content,
             content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename=%s' % title
-        response['Content-Length'] = myfile.tell()
+        response['Content-Disposition'] = f'attachment; filename={title}'
         return response
+
+    def build_zip_response(self, files, title="report"):
+        logger = logging.getLogger(__name__)
+
+        logger.debug(f"Building zip response with files: {list(files.keys())}")
+
+        title = generate_filename(title, '.zip')
+        zip_buffer = BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_name, file_content in files.items():
+                if file_name.endswith('.csv'):
+                    zipf.writestr(file_name, file_content.decode('utf-8'))
+                else:
+                    zipf.writestr(file_name, file_content)
+
+        zip_buffer.seek(0)
+
+        response = HttpResponse(
+            zip_buffer,
+            content_type='application/zip'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{title}"'
+        
+        zip_buffer.close()
+
+        logger.debug(f"Zip response prepared for download: {title}")
+        
+        return response
+    
 
     def list_to_workbook(self, data, title='report', header=None, widths=None):
-        """ Create just a openpxl workbook from a list of data """
+        logger.info("Creating Workbook...")
         wb = Workbook()
         title = re.sub(r'\W+', '', title)[:30]
 
         if isinstance(data, dict):
             i = 0
             for sheet_name, sheet_data in data.items():
+                logger.info(f"Creating sheet: {sheet_name}")
                 if i > 0:
                     wb.create_sheet()
                 ws = wb.worksheets[i]
@@ -120,55 +153,86 @@ class DataExportMixin(object):
                     sheet_data, ws, sheet_name=sheet_name, header=header)
                 i += 1
         else:
+            logger.info("Creating default sheet")
             ws = wb.worksheets[0]
             self.build_sheet(data, ws, header=header, widths=widths)
+        logger.info("Workbook created successfully")
         return wb
 
     def list_to_xlsx_file(self, data, title='report', header=None, widths=None):
-        """ Make 2D list into a xlsx response for download
-        data can be a 2d array or a dict of 2d arrays
-        like {'sheet_1': [['A1', 'B1']]}
-        returns a StringIO file
-        """
+        logger.info("Generating XLSX file...")
         wb = self.list_to_workbook(data, title, header, widths)
-        if not title.endswith('.xlsx'):
-            title += '.xlsx'
-        with NamedTemporaryFile() as tmp:
-            wb.save(tmp.name)
-            tmp.seek(0)
-            stream = tmp.read()
-        myfile = BytesIO()
-        myfile.write(stream)
-        return myfile
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        logger.info("XLSX file generated successfully")
+        return output.getvalue()
 
     def list_to_csv_file(self, data, title='report', header=None, widths=None):
-        """ Make a list into a csv response for download.
-        """
-        wb = self.list_to_workbook(data, title, header, widths)
-        if not title.endswith('.csv'):
-            title += '.csv'
-        myfile = StringIO()
-        sh = wb.active
-        c = csv.writer(myfile)
+        logger.info("Generating CSV file...")
+        output = StringIO()
+        sh = self.list_to_workbook(data, title, header, widths).active
+        c = csv.writer(output)
+        if header:
+            logger.info("Writing header to CSV")
+            c.writerow(header)
         for r in sh.rows:
             c.writerow([cell.value for cell in r])
-        return myfile
+        output.seek(0)
+        logger.info("CSV file generated successfully")
+        return output.getvalue()
 
-    def list_to_xlsx_response(self, data, title='report', header=None,
-                              widths=None):
-        """ Make 2D list into a xlsx response for download
-        data can be a 2d array or a dict of 2d arrays
-        like {'sheet_1': [['A1', 'B1']]}
-        """
-        wb = self.list_to_workbook(data, title, header, widths)
-        return self.build_xlsx_response(wb, title=title)
+    def list_to_xlsx_response(self, data, title='report', header=None, widths=None):
+        total_rows = len(data)
+        logger.info(f"Total Rows: {total_rows}, Max Rows: {self.max_rows}")
+        if total_rows > self.max_rows:
+            logger.info("Total rows exceed max_rows, generating ZIP response")
+            return self.list_to_zip_response(data, title, header, widths, file_type="xlsx")
+        else:
+            logger.info("Generating XLSX response")
+            wb = self.list_to_workbook(data, title, header, widths)
+            return self.build_xlsx_response(wb, title=title)
 
-    def list_to_csv_response(self, data, title='report', header=None,
-                             widths=None):
-        """ Make 2D list into a csv response for download data.
-        """
-        wb = self.list_to_workbook(data, title, header, widths)
-        return self.build_csv_response(wb, title=title)
+    def list_to_csv_response(self, data, title='report', header=None, widths=None):
+        total_rows = len(data)
+        logger.info(f"Total Rows: {total_rows}, Max Rows: {self.max_rows}")
+        if total_rows > self.max_rows:
+            logger.info("Total rows exceed max_rows, generating ZIP response")
+            return self.list_to_zip_response(data, title, header, widths, file_type="csv")
+        else:
+            logger.info("Generating CSV response")
+            csv_content = self.list_to_csv_file(data, title, header, widths)
+            return self.build_csv_response(csv_content, title)
+
+    def list_to_zip_response(self, data, title="report", header=None, widths=None, file_type="xlsx"):
+        logger = logging.getLogger(__name__)
+
+        total_rows = len(data)
+        num_parts = (total_rows // self.max_rows) + (1 if total_rows % self.max_rows != 0 else 0)
+
+        logger.info(f"Total rows: {total_rows}, Max rows per file: {self.max_rows}, Number of parts: {num_parts}")
+
+        files = {}
+        for part in range(num_parts):
+            start_row = part * self.max_rows
+            end_row = min(start_row + self.max_rows, total_rows)
+            part_data = data[start_row:end_row]
+            part_title = f"{title}_part{part + 1}"
+
+            logger.info(f"Processing part {part + 1}: Rows {start_row} to {end_row}")
+
+            if file_type == "csv":
+                csv_content = self.list_to_csv_file(part_data, part_title, header, widths)
+                files[f"{part_title}.csv"] = csv_content.encode('utf-8')
+            elif file_type == "xlsx":
+                xlsx_content = self.list_to_xlsx_file(part_data, part_title, header, widths)
+                files[f"{part_title}.xlsx"] = xlsx_content
+
+        logger.info(f"Files to add to zip: {files.keys()}")
+        
+        return self.build_zip_response(files, title)
+
+    
 
     def add_aggregates(self, queryset, display_fields):
         agg_funcs = {
@@ -184,19 +248,9 @@ class DataExportMixin(object):
         return queryset
 
     def report_to_list(self, queryset, display_fields, user=None, property_filters=[], preview=False):
-        """ Create list from a report with all data filtering.
-        queryset: initial queryset to generate results
-        display_fields: list of field references or DisplayField models
-        user: requesting user. If left as None - there will be no permission check
-        property_filters: ???
-        preview: return only first 50 rows
-        Returns list, message in case of issues.
-        """
         model_class = queryset.model
 
         def can_change_or_view(model):
-            """ Return True iff `user` has either change or view permission
-            for `model`. """
             if user is None:
                 return True
             model_name = model._meta.model_name
@@ -209,21 +263,20 @@ class DataExportMixin(object):
         if not can_change_or_view(model_class):
             return [], 'Permission Denied'
 
+        queryset = queryset.inplace()
+
         if isinstance(display_fields, list):
-            # Convert list of strings to DisplayField objects.
-
             new_display_fields = []
-
             for display_field in display_fields:
                 field_list = display_field.split('__')
                 field = field_list[-1]
                 path = '__'.join(field_list[:-1])
 
                 if path:
-                    path += '__'  # Legacy format to append a __ here.
+                    path += '__'
 
                 new_model = get_model_from_path_string(model_class, path)
-                model_field = new_model._meta.get_field_by_name(field)[0]
+                model_field = new_model._meta.get_field(field)
                 choices = model_field.choices
                 new_display_fields.append(DisplayField(
                     path, '', field, '', '', None, None, choices, ''
@@ -231,13 +284,7 @@ class DataExportMixin(object):
 
             display_fields = new_display_fields
 
-        # Build group-by field list.
-
         group = [df.path + df.field for df in display_fields if df.group]
-
-        # To support group-by with multiple fields, we turn all the other
-        # fields into aggregations. The default aggregation is `Max`.
-
         if group:
             for field in display_fields:
                 if (not field.group) and (not field.aggregate):
@@ -245,8 +292,6 @@ class DataExportMixin(object):
 
         message = ""
         objects = self.add_aggregates(queryset, display_fields)
-
-        # Display Values
 
         display_field_paths = []
         property_list = {}
@@ -289,21 +334,13 @@ class DataExportMixin(object):
                 )
 
         def increment_total(display_field_key, val):
-            """ Increment display total by `val` if given `display_field_key` in
-            `display_totals`.
-            """
             if display_field_key in display_totals:
                 if isinstance(val, bool):
-                    # True: 1, False: 0
                     display_totals[display_field_key] += Decimal(val)
                 elif isinstance(val, Number):
                     display_totals[display_field_key] += Decimal(str(val))
                 elif val:
                     display_totals[display_field_key] += Decimal(1)
-
-        # Select pk for primary and m2m relations in order to retrieve objects
-        # for adding properties to report rows. Group-by queries do not support
-        # Property nor Custom Field filters.
 
         if not group:
             display_field_paths.insert(0, 'pk')
@@ -315,7 +352,7 @@ class DataExportMixin(object):
 
                 try:
                     property_root_class = getattr(root_class, property_root)
-                except AttributeError:  # django-hstore schema compatibility
+                except AttributeError:
                     continue
 
                 if type(property_root_class) == ManyToManyDescriptor:
@@ -341,10 +378,8 @@ class DataExportMixin(object):
             for row in values_list:
                 row = list(row)
                 values_and_properties_list.append(row[1:])
-                obj = None  # we will get this only if needed for more complex processing
-                # related_objects
+                obj = None
                 remove_row = False
-                # filter properties (remove rows with excluded properties)
                 for property_filter in property_filters:
                     if not obj:
                         obj = model_class.objects.get(pk=row.pop(0))
@@ -352,7 +387,6 @@ class DataExportMixin(object):
                     if root_relation in m2m_relations:
                         pk = row[0]
                         if pk is not None:
-                            # a related object exists
                             m2m_obj = getattr(obj, root_relation).get(pk=pk)
                             val = reduce(getattr, [property_filter.field], m2m_obj)
                         else:
@@ -381,19 +415,17 @@ class DataExportMixin(object):
                         if root_relation in m2m_relations:
                             pk = row.pop(0)
                             if pk is not None:
-                                # a related object exists
                                 m2m_obj = getattr(obj, root_relation).get(pk=pk)
                                 val = reduce(getattr, relations[1:], m2m_obj)
                             else:
                                 val = None
                         else:
-                            # Could error if a related field doesn't exist
                             try:
                                 val = reduce(getattr, relations, obj)
                             except AttributeError:
                                 val = None
-                        values_and_properties_list[-1].insert(position, val)
-                        increment_total(display_property, val)
+                            values_and_properties_list[-1].insert(position, val)
+                            increment_total(display_property, val)
 
                     for position, display_custom in custom_list.items():
                         if not obj:
@@ -407,18 +439,12 @@ class DataExportMixin(object):
                 if preview and len(filtered_report_rows) == 50:
                     break
 
-        # Sort results if requested.
-
         if hasattr(display_fields, 'filter'):
             defaults = {
                 None: str,
                 datetime.date: lambda: datetime.date(datetime.MINYEAR, 1, 1),
                 datetime.datetime: lambda: datetime.datetime(datetime.MINYEAR, 1, 1),
             }
-
-            # Order sort fields in reverse order so that ascending, descending
-            # sort orders work together (based on Python's stable sort). See
-            # http://stackoverflow.com/questions/6666748/ for details.
 
             sort_fields = display_fields.filter(sort__gt=0).order_by('-sort')
             sort_values = sort_fields.values_list('position', 'sort_reverse')
@@ -437,18 +463,13 @@ class DataExportMixin(object):
 
         values_and_properties_list = filtered_report_rows
 
-        # Build mapping from display field position to choices list.
-
         choice_lists = {}
         for df in display_fields:
             if df.choices and hasattr(df, 'choices_dict'):
                 df_choices = df.choices_dict
-                # Insert blank and None as valid choices.
                 df_choices[''] = ''
                 df_choices[None] = ''
                 choice_lists[df.position] = df_choices
-
-        # Build mapping from display field position to format.
 
         display_formats = {}
 
@@ -457,7 +478,6 @@ class DataExportMixin(object):
                 display_formats[df.position] = df.display_format
 
         def formatter(value, style):
-            # Convert value to Decimal to apply numeric formats.
             try:
                 value = Decimal(value)
             except Exception:
@@ -467,8 +487,6 @@ class DataExportMixin(object):
                 return style.string.format(value)
             except ValueError:
                 return value
-
-        # Iterate rows and convert values by choice lists and field formats.
 
         final_list = []
 
@@ -499,8 +517,6 @@ class DataExportMixin(object):
             for field in fields_and_properties:
                 display_totals_row.append(display_totals.get(field, ''))
 
-            # Add formatting to display totals.
-
             for pos, style in display_formats.items():
                 display_totals_row[pos] = formatter(display_totals_row[pos], style)
 
@@ -511,30 +527,9 @@ class DataExportMixin(object):
 
         return values_and_properties_list, message
 
-    def sort_helper(self, value, default):
-        if value is None:
-            value = default
-        if isinstance(value, str):
-            value = value.lower()
-        return value
-
 
 class GetFieldsMixin(object):
     def get_fields(self, model_class, field_name='', path='', path_verbose=''):
-        """ Get fields and meta data from a model
-        :param model_class: A django model class
-        :param field_name: The field name to get sub fields from
-        :param path: path of our field in format
-            field_name__second_field_name__ect__
-        :param path_verbose: Human readable version of above
-        :returns: Returns fields and meta data about such fields
-            fields: Django model fields
-            custom_fields: fields from django-custom-field if installed
-            properties: Any properties the model has
-            path: Our new path
-            path_verbose: Our new human readable path
-        :rtype: dict
-        """
         fields = get_direct_fields_from_model(model_class)
         properties = get_properties_from_model(model_class)
         custom_fields = get_custom_fields_from_model(model_class)
@@ -546,8 +541,6 @@ class GetFieldsMixin(object):
             direct = field.concrete
             if path_verbose:
                 path_verbose += "::"
-            # TODO: need actual model name to generate choice list (not pluralized field name)
-            # - maybe store this as a separate value?
             if field.many_to_many and hasattr(field, 'm2m_reverse_field_name'):
                 path_verbose += field.m2m_reverse_field_name()
             else:
@@ -558,7 +551,7 @@ class GetFieldsMixin(object):
             if direct:
                 new_model = field.related_model
                 path_verbose = new_model.__name__.lower()
-            else:  # Indirect related field
+            else:
                 new_model = field.related_model
                 path_verbose = new_model.__name__.lower()
 
@@ -580,7 +573,6 @@ class GetFieldsMixin(object):
         }
 
     def get_related_fields(self, model_class, field_name, path="", path_verbose=""):
-        """ Get fields for a given model """
         if field_name:
             field = model_class._meta.get_field(field_name)
             direct = field.concrete
@@ -588,14 +580,12 @@ class GetFieldsMixin(object):
                 try:
                     related_field = field.remote_field
                 except AttributeError:
-                    # Needed for Django < 1.9
                     related_field = field.related
                 try:
                     new_model = related_field.parent_model()
                 except AttributeError:
                     new_model = related_field.model
             else:
-                # Indirect related field
                 new_model = field.related_model
 
             if path_verbose:

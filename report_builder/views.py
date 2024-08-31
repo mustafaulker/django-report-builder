@@ -1,95 +1,76 @@
-import copy
-import json
 
-from django.conf import settings
-from django.contrib.admin.views.decorators import staff_member_required
+import copy
+import logging
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.http import HttpResponse
-from django.shortcuts import redirect, get_object_or_404
-from django.utils.decorators import method_decorator
+from django.core.cache import cache
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import TemplateView, View
-from six import string_types
-
-from .mixins import DataExportMixin
 from .models import Report
+from .tasks import generate_report_task
 from .utils import duplicate
+from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
-
 class ReportSPAView(TemplateView):
-
     template_name = "report_builder/spa.html"
 
     def get_context_data(self, **kwargs):
         context = super(ReportSPAView, self).get_context_data(**kwargs)
-        context['ASYNC_REPORT'] = getattr(
-            settings, 'REPORT_BUILDER_ASYNC_REPORT', False
-        )
+        context['ASYNC_REPORT'] = getattr(settings, 'REPORT_BUILDER_ASYNC_REPORT', False)
         return context
 
+class DownloadFileView(View):
 
-def fieldset_string_to_field(fieldset_dict, model):
-    if isinstance(fieldset_dict['fields'], tuple):
-        fieldset_dict['fields'] = list(fieldset_dict['fields'])
-    i = 0
-    for dict_field in fieldset_dict['fields']:
-        if isinstance(dict_field, string_types):
-            fieldset_dict['fields'][i] = model._meta.get_field_by_name(
-                dict_field)[0]
-        elif isinstance(dict_field, list) or isinstance(dict_field, tuple):
-            dict_field[1]['recursive'] = True
-            fieldset_string_to_field(dict_field[1], model)
-        i += 1
+    def get_report(self, report_id):
+        return get_object_or_404(Report, pk=report_id)
 
+    def process_report(self, report_id, user_id, file_type, to_response=True, queryset=None):
+        user = get_object_or_404(User, pk=user_id)
+        report = self.get_report(report_id)
+        cache_key = f'report_{report_id}_{file_type}'
 
-def get_fieldsets(model):
-    """ fieldsets are optional, they are defined in the Model.
-    """
-    fieldsets = getattr(model, 'report_builder_fieldsets', None)
-    if fieldsets:
-        for fieldset_name, fieldset_dict in model.report_builder_fieldsets:
-            fieldset_string_to_field(fieldset_dict, model)
-    return fieldsets
-
-
-class DownloadFileView(DataExportMixin, View):
-
-    @method_decorator(staff_member_required)
-    def dispatch(self, *args, **kwargs):
-        return super(DownloadFileView, self).dispatch(*args, **kwargs)
-
-    def process_report(self, report_id, user_id,
-                       file_type, to_response, queryset=None):
-        report = get_object_or_404(Report, pk=report_id)
-        user = User.objects.get(pk=user_id)
+        # Cache kontrolü
+        cached_report = cache.get(cache_key)
+        if cached_report:
+            logger.info(f"Report {report_id} for file type {file_type} is being served from cache.")
+            response = HttpResponse(cached_report, content_type='application/zip')
+            response['Content-Disposition'] = f'attachment; filename="{report_id}_{file_type}.zip"'
+            return response
 
         if to_response:
-            return report.run_report(file_type, user, queryset)
-        else:
-            report.run_report(file_type, user,  queryset, asynchronous=True)
+            # Raporu hemen oluştur
+            report_content = report.run_report(file_type, user, queryset, asynchronous=False)
+            
+            # Raporu cache'e kaydet, 24 saat süre ile saklanacak
+            cache.set(cache_key, report_content, timeout=86400)
+            logger.info(f"Report {report_id} for file type {file_type} is generated and saved to cache.")
+            
+            # Raporun indirilmesi
+            response = HttpResponse(report_content, content_type='application/octet-stream')
+            response['Content-Disposition'] = f'attachment; filename="{report_id}_{file_type}"'
+
+            # Asenkron olarak tekrar cache'e kaydedilmesi için Celery görevi başlatılır
+            generate_report_task.delay(report_id, user_id, file_type, queryset)
+
+            return response
 
     def get(self, request, *args, **kwargs):
         report_id = kwargs['pk']
         file_type = kwargs.get('filetype')
-        if getattr(settings, 'REPORT_BUILDER_ASYNC_REPORT', False):
-            from .tasks import report_builder_file_async_report_save
-            report_task = report_builder_file_async_report_save.delay(
-                report_id, request.user.pk, file_type)
-            task_id = report_task.task_id
-            return HttpResponse(
-                json.dumps({'task_id': task_id}),
-                content_type="application/json")
-        else:
-            return self.process_report(
-                report_id, request.user.pk, file_type, to_response=True)
 
-
+        logger.debug(f'Rapor {report_id} oluşturuluyor...')
+        return self.process_report(
+            report_id, request.user.pk, file_type, to_response=True
+        )
+    
+    
 @staff_member_required
 def ajax_add_star(request, pk):
-    """ Star or unstar report for user
-    """
     report = get_object_or_404(Report, pk=pk)
     user = request.user
     if user in report.starred.all():
@@ -100,17 +81,14 @@ def ajax_add_star(request, pk):
         report.starred.add(request.user)
     return HttpResponse(added)
 
-
 @staff_member_required
 def create_copy(request, pk):
-    """ Copy a report including related fields """
     report = get_object_or_404(Report, pk=pk)
     new_report = duplicate(report, changes=(
         ('name', '{0} (copy)'.format(report.name)),
         ('user_created', request.user),
         ('user_modified', request.user),
     ))
-    # duplicate does not get related
     for display in report.displayfield_set.all():
         new_display = copy.copy(display)
         new_display.pk = None
@@ -123,13 +101,7 @@ def create_copy(request, pk):
         new_filter.save()
     return redirect(new_report)
 
-
 class ExportToReport(DownloadFileView, TemplateView):
-    """ Export objects (by ID and content type) to an existing or new report
-    In effect, this runs the report with its display fields.
-    It ignores filters and filters instead of the provided ID's.
-    It can be selected as a global admin action.
-    """
     template_name = "report_builder/export_to_report.html"
 
     def get_context_data(self, **kwargs):
@@ -160,24 +132,15 @@ class ExportToReport(DownloadFileView, TemplateView):
         context = self.get_context_data(**kwargs)
         return self.render_to_response(context)
 
-
 @staff_member_required
 def check_status(request, pk, task_id):
-    """ Check if the asynchronous report is ready to download """
     from celery.result import AsyncResult
     res = AsyncResult(task_id)
-    link = ''
     if res.state == 'SUCCESS':
-        report = get_object_or_404(Report, pk=pk)
-        link = report.report_file.url
-    return HttpResponse(
-        json.dumps({
-            'state': res.state,
-            'link': link,
-            'email': getattr(
-                settings,
-                'REPORT_BUILDER_EMAIL_NOTIFICATION',
-                False
-            )
-        }),
-        content_type="application/json")
+        cache_key = f'report_{pk}_{task_id}'
+        cached_report = cache.get(cache_key)
+        if cached_report:
+            response = HttpResponse(cached_report, content_type='application/octet-stream')
+            response['Content-Disposition'] = f'attachment; filename="{pk}.csv"'  # or file_type
+            return response
+    return JsonResponse({'state': res.state})
