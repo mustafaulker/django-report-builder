@@ -1,4 +1,5 @@
 import re
+
 from django.template.defaultfilters import slugify
 
 

@@ -1,17 +1,18 @@
-
 import copy
 import logging
+
+from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import TemplateView, View
+
 from .models import Report
 from .tasks import generate_report_task
 from .utils import duplicate
-from django.conf import settings
-from django.contrib.admin.views.decorators import staff_member_required
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -34,7 +35,6 @@ class DownloadFileView(View):
         report = self.get_report(report_id)
         cache_key = f'report_{report_id}_{file_type}'
 
-        # Cache kontrolü
         cached_report = cache.get(cache_key)
         if cached_report:
             logger.info(f"Report {report_id} for file type {file_type} is being served from cache.")
@@ -43,18 +43,14 @@ class DownloadFileView(View):
             return response
 
         if to_response:
-            # Raporu hemen oluştur
             report_content = report.run_report(file_type, user, queryset, asynchronous=False)
             
-            # Raporu cache'e kaydet, 24 saat süre ile saklanacak
             cache.set(cache_key, report_content, timeout=86400)
             logger.info(f"Report {report_id} for file type {file_type} is generated and saved to cache.")
             
-            # Raporun indirilmesi
             response = HttpResponse(report_content, content_type='application/octet-stream')
             response['Content-Disposition'] = f'attachment; filename="{report_id}_{file_type}"'
 
-            # Asenkron olarak tekrar cache'e kaydedilmesi için Celery görevi başlatılır
             generate_report_task.delay(report_id, user_id, file_type, queryset)
 
             return response
@@ -141,6 +137,6 @@ def check_status(request, pk, task_id):
         cached_report = cache.get(cache_key)
         if cached_report:
             response = HttpResponse(cached_report, content_type='application/octet-stream')
-            response['Content-Disposition'] = f'attachment; filename="{pk}.csv"'  # or file_type
+            response['Content-Disposition'] = f'attachment; filename="{pk}.csv"'
             return response
     return JsonResponse({'state': res.state})

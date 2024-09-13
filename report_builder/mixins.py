@@ -1,31 +1,22 @@
-from io import BytesIO, StringIO
-import os
-from django.conf import settings
-from django.http import HttpResponse
-from django.contrib.contenttypes.models import ContentType
-try:
-    from django.db.models.fields.related_descriptors import ManyToManyDescriptor
-except ImportError:
-    from django.db.models.fields.related import (
-        ReverseManyRelatedObjectsDescriptor as ManyToManyDescriptor
-    )
-from django.db.models import Avg, Count, Sum, Max, Min
-from openpyxl.workbook import Workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font
 import csv
+import datetime
+import logging
 import re
+import zipfile
 from collections import namedtuple
 from decimal import Decimal
-from numbers import Number
 from functools import reduce
-import datetime
-import zipfile
-from celery import shared_task
-from django.core.cache import cache
-from django.shortcuts import get_object_or_404
+from io import BytesIO, StringIO
+from numbers import Number
+
 from django.contrib.auth import get_user_model
-import logging
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Avg, Count, Sum, Max, Min
+from django.db.models.fields.related_descriptors import ManyToManyDescriptor
+from django.http import HttpResponse
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+from openpyxl.workbook import Workbook
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +35,7 @@ DisplayField = namedtuple(
 
 User = get_user_model()
 
+
 def generate_filename(title, ends_with):
     title = title.split('.')[0]
     title.replace(' ', '_')
@@ -54,7 +46,7 @@ def generate_filename(title, ends_with):
 
 
 class DataExportMixin(object):
-    max_rows = 10000  # Varsayılan maksimum satır sınırı
+    max_rows = 10000
 
     def build_sheet(self, data, ws, sheet_name='report', header=None, widths=None):
         first_row = 1
@@ -129,13 +121,12 @@ class DataExportMixin(object):
             content_type='application/zip'
         )
         response['Content-Disposition'] = f'attachment; filename="{title}"'
-        
+
         zip_buffer.close()
 
         logger.debug(f"Zip response prepared for download: {title}")
-        
+
         return response
-    
 
     def list_to_workbook(self, data, title='report', header=None, widths=None):
         logger.info("Creating Workbook...")
@@ -229,10 +220,8 @@ class DataExportMixin(object):
                 files[f"{part_title}.xlsx"] = xlsx_content
 
         logger.info(f"Files to add to zip: {files.keys()}")
-        
-        return self.build_zip_response(files, title)
 
-    
+        return self.build_zip_response(files, title)
 
     def add_aggregates(self, queryset, display_fields):
         agg_funcs = {

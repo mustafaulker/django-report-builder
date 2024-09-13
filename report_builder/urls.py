@@ -23,7 +23,7 @@ urlpatterns = [
     re_path(r'^export_to_report/$', views.ExportToReport.as_view(), name="export_to_report"),
     re_path(r'^api/', include(router.urls)),
     re_path(r'^api/config/', api_views.ConfigView.as_view()),
-    re_path(r'^api/api-auth/', include('rest_framework.urls', namespace='resat_framework')),
+    re_path(r'^api/api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     re_path(r'^api/related_fields', staff_member_required(api_views.RelatedFieldsView.as_view()),
             name="related_fields"),
     re_path(r'^api/fields', staff_member_required(api_views.FieldsView.as_view()), name="fields"),
