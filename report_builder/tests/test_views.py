@@ -34,7 +34,7 @@ class ViewTests(TestCase):
         email_report(report_url, user)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, email_subject)
-        self.assertEqual(mail.outbox[0].alternatives[0][0], "<p>Hello {0},</p>\n<br>\n<p>The report is <a href='{1}'>here</u></p>".format(username, report_url))
+        self.assertEqual(mail.outbox[0].alternatives[0][0], "<p>Hello {},</p>\n<br>\n<p>The report is <a href='{}'>here</u></p>".format(username, report_url))
         settings.REPORT_BUILDER_EMAIL_NOTIFICATION = None
         settings.REPORT_BUILDER_EMAIL_TEMPLATE = None
         mail.outbox = []

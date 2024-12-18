@@ -107,7 +107,7 @@ class Report(models.Model):
     def save(self, *args, **kwargs):
         if not self.id:
             unique_slugify(self, self.name)
-        super(Report, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     def add_aggregates(self, queryset, display_fields=None):
         agg_funcs = {
@@ -372,7 +372,7 @@ class Report(models.Model):
         for filter_field in report.filterfield_set.order_by('position'):
             if filter_field.filter_type in ('max', 'min'):
                 func = {'max': Max, 'min': Min}[filter_field.filter_type]
-                column_name = '{0}{1}__{2}'.format(
+                column_name = '{}{}__{}'.format(
                     filter_field.path,
                     filter_field.field,
                     filter_field.field_type
@@ -396,7 +396,7 @@ class Report(models.Model):
 
     def edit(self):
         return mark_safe(
-            '<a href="{0}"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+            '<a href="{}"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                 self.get_absolute_url(),
                 static('report_builder/img/edit.svg')
             )
@@ -405,14 +405,14 @@ class Report(models.Model):
     def download_xlsx(self):
         if getattr(settings, 'REPORT_BUILDER_ASYNC_REPORT', False):
             return mark_safe(
-                '<a href="javascript:void(0)" onclick="get_async_report({0})"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+                '<a href="javascript:void(0)" onclick="get_async_report({})"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                     self.id,
                     static('report_builder/img/download.svg')
                 )
             )
         else:
             return mark_safe(
-                '<a href="{0}"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+                '<a href="{}"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                     reverse('report_download_file', args=[self.id]),
                     static('report_builder/img/download.svg')
                 )
@@ -422,7 +422,7 @@ class Report(models.Model):
 
     def copy_report(self):
         return mark_safe(
-            '<a href="{0}"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+            '<a href="{}"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                 reverse('report_builder_create_copy', args=[self.id]),
                 static('report_builder/img/copy.svg')
             )
@@ -686,7 +686,7 @@ class FilterField(AbstractField):
         elif self.field_type == 'DateField' and self.filter_type != 'isnull':
             self.filter_value = str(self.parse_datetime_fields(self.filter_value))
 
-        return super(FilterField, self).clean()
+        return super().clean()
 
     def parse_datetime_fields(self, dt_type):
         """Clean and parse datetime filter_value inputs."""

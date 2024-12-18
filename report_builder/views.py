@@ -23,7 +23,7 @@ class ReportSPAView(TemplateView):
     template_name = "report_builder/spa.html"
 
     def get_context_data(self, **kwargs):
-        context = super(ReportSPAView, self).get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
         context['ASYNC_REPORT'] = getattr(
             settings, 'REPORT_BUILDER_ASYNC_REPORT', False
         )
@@ -35,7 +35,7 @@ def fieldset_string_to_field(fieldset_dict, model):
         fieldset_dict['fields'] = list(fieldset_dict['fields'])
     i = 0
     for dict_field in fieldset_dict['fields']:
-        if isinstance(dict_field, string_types):
+        if isinstance(dict_field, str):
             fieldset_dict['fields'][i] = model._meta.get_field_by_name(
                 dict_field)[0]
         elif isinstance(dict_field, list) or isinstance(dict_field, tuple):
@@ -58,7 +58,7 @@ class DownloadFileView(DataExportMixin, View):
 
     @method_decorator(staff_member_required)
     def dispatch(self, *args, **kwargs):
-        return super(DownloadFileView, self).dispatch(*args, **kwargs)
+        return super().dispatch(*args, **kwargs)
 
     def process_report(self, report_id, user_id,
                        file_type, to_response, queryset=None):
@@ -106,7 +106,7 @@ def create_copy(request, pk):
     """ Copy a report including related fields """
     report = get_object_or_404(Report, pk=pk)
     new_report = duplicate(report, changes=(
-        ('name', '{0} (copy)'.format(report.name)),
+        ('name', '{} (copy)'.format(report.name)),
         ('user_created', request.user),
         ('user_modified', request.user),
     ))
@@ -133,7 +133,7 @@ class ExportToReport(DownloadFileView, TemplateView):
     template_name = "report_builder/export_to_report.html"
 
     def get_context_data(self, **kwargs):
-        ctx = super(ExportToReport, self).get_context_data(**kwargs)
+        ctx = super().get_context_data(**kwargs)
         ctx['admin_url'] = self.request.GET.get('admin_url', '/')
         ct = ContentType.objects.get_for_id(self.request.GET['ct'])
         ids = self.request.GET['ids'].split(',')

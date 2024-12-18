@@ -81,7 +81,7 @@ class ReportNestedViewSet(ReportBuilderViewMixin, viewsets.ModelViewSet):
     def copy_report(self, request, pk=None):
         report = self.get_object()
         new_report = duplicate(report, changes=(
-            ('name', '{0} (copy)'.format(report.name)),
+            ('name', '{} (copy)'.format(report.name)),
             ('user_created', request.user),
             ('user_modified', request.user),
         ))

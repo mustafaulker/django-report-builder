@@ -83,7 +83,7 @@ class Waiter(models.Model):
     days_worked = models.IntegerField(blank=True, null=True, default=None)
 
     def __str__(self):
-        return "%s the waiter at %s" % (self.name, self.restaurant)
+        return "{} the waiter at {}".format(self.name, self.restaurant)
 
 
 class Person(models.Model):

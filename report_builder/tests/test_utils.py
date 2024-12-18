@@ -22,7 +22,7 @@ class RelationUtilityFunctionTests(TestCase):
             if hasattr(Waiter.restaurant.field, 'rel')
             else Waiter.restaurant.field.target_field.name
         )
-        self.assertEquals(field_name, "place")
+        self.assertEqual(field_name, "place")
 
     def test_get_relation_fields_from_model_does_not_change_field_name(self):
         """
@@ -41,7 +41,7 @@ class RelationUtilityFunctionTests(TestCase):
             if hasattr(Waiter.restaurant.field, 'rel')
             else Waiter.restaurant.field.target_field.name
         )
-        self.assertEquals(field_name, "place")
+        self.assertEqual(field_name, "place")
         # Waiter.restaurant.field.rel.get_related_field()
 
 
@@ -68,7 +68,7 @@ class UtilityFunctionTests(TestCase):
         self.assertTrue('displayfield' in names or 'report_builder:displayfield' in names)
         self.assertTrue('filterfield' in names or 'report_builder:filterfield' in names)
         self.assertTrue('root_model' in names)
-        self.assertEquals(len(names), 7)
+        self.assertEqual(len(names), 7)
 
     def test_get_model_from_path_string(self):
         result = get_model_from_path_string(Restaurant, 'waiter__name')
@@ -87,7 +87,7 @@ class UtilityFunctionTests(TestCase):
         self.assertTrue('description' in names)
         self.assertTrue('distinct' in names)
         self.assertTrue('id' in names)
-        self.assertEquals(len(names), 9)
+        self.assertEqual(len(names), 9)
 
     def test_get_fields(self):
         """ Test GetFieldsMixin.get_fields """
@@ -102,8 +102,8 @@ class UtilityFunctionTests(TestCase):
 
     def test_get_properties_from_model(self):
         properties = get_properties_from_model(DisplayField)
-        self.assertEquals(properties[0]['label'], 'choices')
-        self.assertEquals(properties[1]['label'], 'choices_dict')
+        self.assertEqual(properties[0]['label'], 'choices')
+        self.assertEqual(properties[1]['label'], 'choices_dict')
 
     def test_filter_property(self):
         # Not a very complete test - only tests one type of filter
@@ -113,7 +113,7 @@ class UtilityFunctionTests(TestCase):
     def test_custom_global_model_manager(self):
         """ test for custom global model manager """
         if getattr(settings, 'REPORT_BUILDER_MODEL_MANAGER', False):
-            self.assertEquals(
+            self.assertEqual(
                 self.report._get_model_manager(),
                 settings.REPORT_BUILDER_MODEL_MANAGER)
 
@@ -131,4 +131,4 @@ class UtilityFunctionTests(TestCase):
             # coverage of get_query
             objects = self.report.get_query()
             # expect custom manager to return correct object with filters
-            self.assertEquals(objects[0], self.report)
+            self.assertEqual(objects[0], self.report)

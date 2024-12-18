@@ -15,7 +15,7 @@ User = get_user_model()
 
 
 IS_D18 = False
-if django.VERSION[0] is 1 and django.VERSION[1] is 8:
+if django.VERSION[0] is 1 and django.VERSION[1] == 8:
     IS_D18 = True
 
 

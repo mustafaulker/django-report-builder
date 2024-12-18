@@ -41,7 +41,7 @@ def generate_filename(title, ends_with):
     return title
 
 
-class DataExportMixin(object):
+class DataExportMixin:
     def build_sheet(self, data, ws, sheet_name='report', header=None, widths=None):
         first_row = 1
         column_base = 1
@@ -289,7 +289,7 @@ class DataExportMixin(object):
                     display_totals[display_field_key] = Decimal(0)
 
             else:
-                message += 'Error: Permission denied on access to {0}.'.format(
+                message += 'Error: Permission denied on access to {}.'.format(
                     display_field.name
                 )
 
@@ -524,7 +524,7 @@ class DataExportMixin(object):
         return value
 
 
-class GetFieldsMixin(object):
+class GetFieldsMixin:
     def get_fields(self, model_class, field_name='', path='', path_verbose=''):
         """ Get fields and meta data from a model
         :param model_class: A django model class
