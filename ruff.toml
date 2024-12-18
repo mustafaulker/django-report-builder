@@ -1,0 +1,82 @@
+target-version = "py312"
+line-length = 121
+indent-width = 4
+
+extend-exclude = [
+    "node_modules",
+    "venv",
+    ".ipynb_checkpoints",
+    ".pyenv",
+    ".pytest_cache",
+    ".vscode",
+    "build",
+    "site-packages",
+    "_deploymanifests",
+    "migrations",
+    "Dockerfile",
+    "buildspec.yml",
+    "report_builder_demo",
+    "tests",
+]
+
+[lint]
+select = [
+    "F", # pyflakes
+    "W", # pycodestyle warnings
+    "N", # pep8-naming
+    "B", # flake8-bugbear
+    "I", # isort
+    "UP", # pyupgrade
+    "COM", # flake8-commas
+    "DJ", # flake8-django
+    "T20", # flake8-print
+]
+ignore = [
+    "C417", # unnecessary-list-comp
+    "D100", # missing-docstring
+    "D101", # missing-class-docstring
+    "D102", # missing-function-docstring
+    "D103", # missing-method-docstring
+    "D104", # missing-package-docstring
+    "D105", # missing-magic-method-docstring
+    "D106", # missing-docstring-in-init
+    "D107", # missing-docstring-in-nested-function
+    "D200", # one-liner-needed
+    "D212", # multi-line-docstring-first-line
+    "D415", # capitalized-ends-in-period
+    "E203", # whitespace-before-colon
+    "E231", # missing-whitespace-after-comma
+    "E501", # line-too-long
+    "E731", # do-not-assign-lambda
+    "F403", # from-import-star
+    "F405", # import-star-usage
+    "Q000", # quotes
+    "COM819", # prohibited-trailing-comma
+]
+
+[format]
+docstring-code-format = true
+quote-style = "preserve"
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.isort]
+lines-after-imports = 2
+
+[lint.isort.sections]
+"django" = ["django"]
+
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "django",
+    "first-party",
+    "local-folder",
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"settings/*.py" = ["F401"]
+"manage.py" = ["D"]

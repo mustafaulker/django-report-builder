@@ -10,7 +10,7 @@ from .tasks import report_builder_run_scheduled_report
 
 @staff_member_required
 def run_scheduled_report(request, pk):
-    """ Manually run a scheduled report - useful for testing or one-off situations """
+    """Manually run a scheduled report - useful for testing or one-off situations"""
     scheduled_report = get_object_or_404(ScheduledReport, pk=pk)
     report_builder_run_scheduled_report.delay(scheduled_report.id)
     messages.success(request, "Ran scheduled report")

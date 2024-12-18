@@ -1,10 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from model_bakery import baker
-from rest_framework.test import APIRequestFactory
-from rest_framework.test import force_authenticate
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .views import ContentTypeViewSet
+
 
 User = get_user_model()
 
@@ -17,6 +17,5 @@ class ReportBuilderAPITests(TestCase):
         request = factory.get('/report_builder/api/contenttypes/')
         force_authenticate(request, user=user)
         response = view(request)
-        print(response.data)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data, "should return some content types")

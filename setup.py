@@ -1,4 +1,5 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
+
 
 setup(
     name="django-report-builder",
@@ -28,5 +29,5 @@ setup(
         'openpyxl>=3.1.0',
         'python-dateutil',
         'djangorestframework>=3.8.0',
-    ]
+    ],
 )

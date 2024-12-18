@@ -3,8 +3,7 @@ import re
 from django.template.defaultfilters import slugify
 
 
-def unique_slugify(instance, value, slug_field_name='slug', queryset=None,
-                   slug_separator='-'):
+def unique_slugify(instance, value, slug_field_name='slug', queryset=None, slug_separator='-'):
     """
     Calculates and stores a unique slug of ``value`` for an instance.
 
@@ -38,11 +37,11 @@ def unique_slugify(instance, value, slug_field_name='slug', queryset=None,
     next = 2
     while not slug or queryset.filter(**{slug_field_name: slug}):
         slug = original_slug
-        end = '{}{}'.format(slug_separator, next)
+        end = f'{slug_separator}{next}'
         if slug_len and len(slug) + len(end) > slug_len:
-            slug = slug[:slug_len - len(end)]
+            slug = slug[: slug_len - len(end)]
             slug = _slug_strip(slug, slug_separator)
-        slug = '{}{}'.format(slug, end)
+        slug = f'{slug}{end}'
         next += 1
 
     setattr(instance, slug_field.attname, slug)
@@ -60,14 +59,14 @@ def _slug_strip(value, separator='-'):
     if separator == '-' or not separator:
         re_sep = '-'
     else:
-        re_sep = '(?:-|%s)' % re.escape(separator)
+        re_sep = f'(?:-|{re.escape(separator)})'
     # Remove multiple instances and if an alternate separator is provided,
     # replace the default '-' separator.
     if separator != re_sep:
-        value = re.sub('%s+' % re_sep, separator, value)
+        value = re.sub(f'{re_sep}+', separator, value)
     # Remove separator from the beginning and end of the slug.
     if separator:
         if separator != '-':
             re_sep = re.escape(separator)
-        value = re.sub(r'^{}+|{}+$'.format(re_sep, re_sep), '', value)
+        value = re.sub(rf'^{re_sep}+|{re_sep}+$', '', value)
     return value

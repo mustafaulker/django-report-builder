@@ -9,7 +9,7 @@ from numbers import Number
 from tempfile import NamedTemporaryFile
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Avg, Count, Sum, Max, Min
+from django.db.models import Avg, Count, Max, Min, Sum
 from django.db.models.fields.related_descriptors import ManyToManyDescriptor
 from django.http import HttpResponse
 from openpyxl.styles import Font
@@ -17,13 +17,12 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook import Workbook
 
 from .utils import (
-    get_relation_fields_from_model,
-    get_properties_from_model,
+    get_custom_fields_from_model,
     get_direct_fields_from_model,
     get_model_from_path_string,
-    get_custom_fields_from_model,
+    get_properties_from_model,
+    get_relation_fields_from_model,
 )
-from datetime import datetime
 
 
 DisplayField = namedtuple(
@@ -35,7 +34,7 @@ DisplayField = namedtuple(
 def generate_filename(title, ends_with):
     title = title.split('.')[0]
     title.replace(' ', '_')
-    title += ('_' + datetime.now().strftime("%m%d_%H%M"))
+    title += '_' + datetime.datetime.now().strftime("%m%d_%H%M")
     if not title.endswith(ends_with):
         title += ends_with
     return title
@@ -78,37 +77,33 @@ class DataExportMixin:
                 ws.append(['Unknown Error'])
 
     def build_xlsx_response(self, wb, title="report"):
-        """ Take a workbook and return an xlsx file response """
+        """Take a workbook and return an xlsx file response"""
         title = generate_filename(title, '.xlsx')
         with NamedTemporaryFile() as tmp:
             wb.save(tmp.name)
             tmp.seek(0)
             stream = tmp.read()
             stream_size = tmp.tell()
-        response = HttpResponse(
-            stream,
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response['Content-Disposition'] = 'attachment; filename=%s' % title
+        response = HttpResponse(stream, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename={title}'
         response['Content-Length'] = stream_size
         return response
 
     def build_csv_response(self, wb, title="report"):
-        """ Take a workbook and return a csv file response """
+        """Take a workbook and return a csv file response"""
         title = generate_filename(title, '.csv')
         myfile = StringIO()
         sh = wb.active
         c = csv.writer(myfile)
         for r in sh.rows:
             c.writerow([cell.value for cell in r])
-        response = HttpResponse(
-            myfile.getvalue(),
-            content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename=%s' % title
+        response = HttpResponse(myfile.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename={title}'
         response['Content-Length'] = myfile.tell()
         return response
 
     def list_to_workbook(self, data, title='report', header=None, widths=None):
-        """ Create just a openpxl workbook from a list of data """
+        """Create just a openpxl workbook from a list of data"""
         wb = Workbook()
         title = re.sub(r'\W+', '', title)[:30]
 
@@ -118,8 +113,7 @@ class DataExportMixin:
                 if i > 0:
                     wb.create_sheet()
                 ws = wb.worksheets[i]
-                self.build_sheet(
-                    sheet_data, ws, sheet_name=sheet_name, header=header)
+                self.build_sheet(sheet_data, ws, sheet_name=sheet_name, header=header)
                 i += 1
         else:
             ws = wb.worksheets[0]
@@ -136,7 +130,7 @@ class DataExportMixin:
         for row in data:
             cleaned_row = []
             for value in row:
-                if isinstance(value, datetime):
+                if isinstance(value, datetime.datetime):
                     value = value.replace(tzinfo=None)
                 cleaned_row.append(value)
             ws.append(cleaned_row)
@@ -147,8 +141,7 @@ class DataExportMixin:
         return file_buffer
 
     def list_to_csv_file(self, data, title='report', header=None, widths=None):
-        """ Make a list into a csv response for download.
-        """
+        """Make a list into a csv response for download."""
         wb = self.list_to_workbook(data, title, header, widths)
         if not title.endswith('.csv'):
             title += '.csv'
@@ -159,25 +152,26 @@ class DataExportMixin:
             c.writerow([cell.value for cell in r])
         return myfile
 
-    def list_to_xlsx_response(self, data, title='report', header=None,
-                              widths=None):
-        """ Make 2D list into a xlsx response for download
+    def list_to_xlsx_response(self, data, title='report', header=None, widths=None):
+        """Make 2D list into a xlsx response for download
         data can be a 2d array or a dict of 2d arrays
         like {'sheet_1': [['A1', 'B1']]}
         """
         wb = self.list_to_workbook(data, title, header, widths)
         return self.build_xlsx_response(wb, title=title)
 
-    def list_to_csv_response(self, data, title='report', header=None,
-                             widths=None):
-        """ Make 2D list into a csv response for download data.
-        """
+    def list_to_csv_response(self, data, title='report', header=None, widths=None):
+        """Make 2D list into a csv response for download data."""
         wb = self.list_to_workbook(data, title, header, widths)
         return self.build_csv_response(wb, title=title)
 
     def add_aggregates(self, queryset, display_fields):
         agg_funcs = {
-            'Avg': Avg, 'Min': Min, 'Max': Max, 'Count': Count, 'Sum': Sum
+            'Avg': Avg,
+            'Min': Min,
+            'Max': Max,
+            'Count': Count,
+            'Sum': Sum,
         }
 
         for display_field in display_fields:
@@ -188,8 +182,8 @@ class DataExportMixin:
 
         return queryset
 
-    def report_to_list(self, queryset, display_fields, user=None, property_filters=[], preview=False):
-        """ Create list from a report with all data filtering.
+    def report_to_list(self, queryset, display_fields, user=None, property_filters=None, preview=False):
+        """Create list from a report with all data filtering.
         queryset: initial queryset to generate results
         display_fields: list of field references or DisplayField models
         user: requesting user. If left as None - there will be no permission check
@@ -197,11 +191,14 @@ class DataExportMixin:
         preview: return only first 50 rows
         Returns list, message in case of issues.
         """
+        if property_filters is None:
+            property_filters = []
         model_class = queryset.model
 
         def can_change_or_view(model):
-            """ Return True iff `user` has either change or view permission
-            for `model`. """
+            """Return True iff `user` has either change or view permission
+            for `model`.
+            """
             if user is None:
                 return True
             model_name = model._meta.model_name
@@ -230,9 +227,19 @@ class DataExportMixin:
                 new_model = get_model_from_path_string(model_class, path)
                 model_field = new_model._meta.get_field_by_name(field)[0]
                 choices = model_field.choices
-                new_display_fields.append(DisplayField(
-                    path, '', field, '', '', None, None, choices, ''
-                ))
+                new_display_fields.append(
+                    DisplayField(
+                        path,
+                        '',
+                        field,
+                        '',
+                        '',
+                        None,
+                        None,
+                        choices,
+                        '',
+                    ),
+                )
 
             display_fields = new_display_fields
 
@@ -289,12 +296,10 @@ class DataExportMixin:
                     display_totals[display_field_key] = Decimal(0)
 
             else:
-                message += 'Error: Permission denied on access to {}.'.format(
-                    display_field.name
-                )
+                message += f'Error: Permission denied on access to {display_field.name}.'
 
         def increment_total(display_field_key, val):
-            """ Increment display total by `val` if given `display_field_key` in
+            """Increment display total by `val` if given `display_field_key` in
             `display_totals`.
             """
             if display_field_key in display_totals:
@@ -314,7 +319,7 @@ class DataExportMixin:
             display_field_paths.insert(0, 'pk')
 
             m2m_relations = []
-            for position, property_path in property_list.items():
+            for _position, property_path in property_list.items():
                 property_root = property_path.split('__')[0]
                 root_class = model_class
 
@@ -323,17 +328,14 @@ class DataExportMixin:
                 except AttributeError:  # django-hstore schema compatibility
                     continue
 
-                if type(property_root_class) == ManyToManyDescriptor:
-                    display_field_paths.insert(1, '%s__pk' % property_root)
+                if type(property_root_class) is ManyToManyDescriptor:
+                    display_field_paths.insert(1, f'{property_root}__pk')
                     m2m_relations.append(property_root)
 
         if group:
             values = objects.values(*group)
             values = self.add_aggregates(values, display_fields)
-            filtered_report_rows = [
-                [row[field] for field in display_field_paths]
-                for row in values
-            ]
+            filtered_report_rows = [[row[field] for field in display_field_paths] for row in values]
             for row in filtered_report_rows:
                 for pos, field in enumerate(display_field_paths):
                     increment_total(field, row[pos])
@@ -364,7 +366,7 @@ class DataExportMixin:
                             val = None
                     else:
                         if property_filter.field_type == 'Custom Field':
-                            for relation in property_filter.path.split('__'):
+                            for _relation in property_filter.path.split('__'):
                                 if hasattr(obj, root_relation):
                                     obj = getattr(obj, root_relation)
                             val = obj.get_custom_value(property_filter.field)
@@ -418,7 +420,7 @@ class DataExportMixin:
             defaults = {
                 None: str,
                 datetime.date: lambda: datetime.date(datetime.MINYEAR, 1, 1),
-                datetime: lambda: datetime(datetime.MINYEAR, 1, 1),
+                datetime: lambda: datetime.datetime(datetime.MINYEAR, 1, 1),
             }
 
             # Order sort fields in reverse order so that ascending, descending
@@ -496,7 +498,7 @@ class DataExportMixin:
         if display_totals:
             display_totals_row = []
 
-            fields_and_properties = list(display_field_paths[0 if group else 1:])
+            fields_and_properties = list(display_field_paths[0 if group else 1 :])
 
             for position, value in property_list.items():
                 fields_and_properties.insert(position, value)
@@ -510,7 +512,7 @@ class DataExportMixin:
                 display_totals_row[pos] = formatter(display_totals_row[pos], style)
 
             values_and_properties_list.append(
-                ['TOTALS'] + (len(fields_and_properties) - 1) * ['']
+                ['TOTALS'] + (len(fields_and_properties) - 1) * [''],
             )
             values_and_properties_list.append(display_totals_row)
 
@@ -526,7 +528,7 @@ class DataExportMixin:
 
 class GetFieldsMixin:
     def get_fields(self, model_class, field_name='', path='', path_verbose=''):
-        """ Get fields and meta data from a model
+        """Get fields and meta data from a model
         :param model_class: A django model class
         :param field_name: The field name to get sub fields from
         :param path: path of our field in format
@@ -585,7 +587,7 @@ class GetFieldsMixin:
         }
 
     def get_related_fields(self, model_class, field_name, path="", path_verbose=""):
-        """ Get fields for a given model """
+        """Get fields for a given model"""
         if field_name:
             field = model_class._meta.get_field(field_name)
             direct = field.concrete

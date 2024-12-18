@@ -2,7 +2,8 @@ import csv
 import json
 import time
 import unittest
-from datetime import date, datetime, timedelta, time as dtime
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from io import StringIO
 
 from django.conf import settings
@@ -16,22 +17,10 @@ from freezegun import freeze_time
 from rest_framework.test import APIClient
 
 from report_builder.api.serializers import ReportNestedSerializer
-from report_builder_demo.demo_models.models import (
-    Bar,
-    Place,
-    Restaurant,
-    Waiter,
-    Person,
-    Child
-)
-from ..models import (
-    Report,
-    DisplayField,
-    FilterField,
-    Format,
-    get_allowed_models,
-    get_limit_choices_to_callable
-)
+from report_builder_demo.demo_models.models import Bar, Child, Person, Place, Restaurant, Waiter
+
+from ..models import DisplayField, FilterField, Format, Report, get_allowed_models, get_limit_choices_to_callable
+
 
 User = get_user_model()
 
@@ -73,9 +62,7 @@ class ReportBuilderTests(TestCase):
 
     def test_get_allowed_models_for_exclude(self):
         pre_exclude_duplicates = find_duplicates_in_contexttype()
-        settings.REPORT_BUILDER_EXCLUDE = (
-            'demo_second_app.bar',
-        )
+        settings.REPORT_BUILDER_EXCLUDE = ('demo_second_app.bar',)
         post_exclude_duplicates = find_duplicates_in_contexttype()
         settings.REPORT_BUILDER_EXCLUDE = None
         self.assertEqual(pre_exclude_duplicates, ['bar'])
@@ -109,7 +96,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="foo", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'char_field')
         self.assertNotContains(response, 'char_field2')
@@ -118,10 +106,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="place", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id,
-             "path": "",
-             "path_verbose": "",
-             "field": "restaurant"})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": "restaurant"},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'pizza')
 
@@ -129,10 +115,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="bar", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id,
-             "path": "",
-             "path_verbose": "",
-             "field": "foos"})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": "foos"},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'char_field')
         self.assertNotContains(response, 'char_field2')
@@ -141,10 +125,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="foo", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id,
-             "path": "",
-             "path_verbose": "",
-             "field": "bar_set"})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": "bar_set"},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'i_want_char_field')
         self.assertContains(response, 'i_need_char_field')
@@ -153,10 +135,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="place", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/related_fields/',
-            {"model": ct.id,
-             "path": "",
-             "path_verbose": "",
-             "field": "restaurant"})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": "restaurant"},
+        )
         self.assertContains(response, '"parent_model_name"')
         self.assertContains(response, '"parent_model_app_label"')
         self.assertContains(response, '"included_model"')
@@ -166,7 +146,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="fooexclude", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'char_field')
         self.assertNotContains(response, 'char_field2')
@@ -175,7 +156,7 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="bar", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""}
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'char_field')
@@ -186,7 +167,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="bar", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'is_default')
 
@@ -194,7 +176,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="bar", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'field_choices')
         self.assertContains(response, '[["CH","CHECK"],["MA","CHECKMATE"]]')
@@ -203,7 +186,8 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="bar", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'can_filter')
         for field in response.data:
@@ -215,35 +199,37 @@ class ReportBuilderTests(TestCase):
         ct = ContentType.objects.get(model="foo", app_label="demo_models")
         response = self.client.post(
             '/report_builder/api/fields/',
-            {"model": ct.id, "path": "", "path_verbose": "", "field": ""})
+            {"model": ct.id, "path": "", "path_verbose": "", "field": ""},
+        )
         for field in response.data:
             self.assertEqual(field['can_filter'], True)
 
     def test_report_builder_understands_empty_string(self):
         ct = ContentType.objects.get_for_model(Report)
-        report = Report.objects.create(
-            name="foo report",
-            root_model=ct)
+        report = Report.objects.create(name="foo report", root_model=ct)
 
-        display_field = DisplayField.objects.create(
+        DisplayField.objects.create(
             name='foo',
             report=report,
             field="X",
             field_verbose="stuff",
             sort=None,
-            position=1)
+            position=1,
+        )
         data = ReportNestedSerializer(report).data
         data['displayfield_set'][0]['sort'] = ''
-        response = self.client.put(f'/report_builder/api/report/{report.id}/',
-                                    data=json.dumps(data),
-                                    content_type='application/json',
-                                    headers={"x-requested-wwith": 'XMLHttpRequest'})
+        response = self.client.put(
+            f'/report_builder/api/report/{report.id}/',
+            data=json.dumps(data),
+            content_type='application/json',
+            headers={"x-requested-wwith": 'XMLHttpRequest'},
+        )
         self.assertEqual(response.status_code, 200)
 
         self.assertIsNone(report.displayfield_set.all()[0].sort)
 
-class ReportTests(TestCase):
 
+class ReportTests(TestCase):
     def setUp(self):
         user = User.objects.get_or_create(username='testy')[0]
         user.is_staff = True
@@ -279,7 +265,7 @@ class ReportTests(TestCase):
         report_list = self.report.report_to_list(self.report.get_query())
         self.assertEqual(
             report_list[0],
-            [bar.i_want_char_field, bar.i_need_char_field]
+            [bar.i_want_char_field, bar.i_need_char_field],
         )
 
     def test_property_and_field_position(self):
@@ -309,7 +295,7 @@ class ReportTests(TestCase):
         report_list = self.report.report_to_list(self.report.get_query())
         self.assertEqual(
             report_list[0],
-            [bar.char_field, bar.i_want_char_field, bar.i_need_char_field, bar.char_field]
+            [bar.char_field, bar.i_want_char_field, bar.i_need_char_field, bar.char_field],
         )
 
     def test_property_display(self):
@@ -403,8 +389,9 @@ class ReportTests(TestCase):
             bar.foos.create(char_field="a")
 
     def test_performance(self):
-        """ Test getting a report with ORM and property fields.
-        Provides baseline on performance testing. """
+        """Test getting a report with ORM and property fields.
+        Provides baseline on performance testing.
+        """
         self.make_lots_of_foos()
         DisplayField.objects.create(
             report=self.report,
@@ -419,13 +406,13 @@ class ReportTests(TestCase):
         start = time.time()
         response = self.client.get(self.generate_url)
         run_time = time.time() - start
-        print('report builder report time is {}'.format(run_time))
         self.assertEqual(response.status_code, 200)
         self.assertLess(run_time, 1.0)
 
     def test_performance_filter(self):
-        """ Test getting a report with ORM and property fields.
-        Provides baseline on performance testing. """
+        """Test getting a report with ORM and property fields.
+        Provides baseline on performance testing.
+        """
         self.make_lots_of_foos()
         DisplayField.objects.create(
             report=self.report,
@@ -452,7 +439,6 @@ class ReportTests(TestCase):
         start = time.time()
         response = self.client.get(self.generate_url)
         run_time = time.time() - start
-        print('report builder report time is {}'.format(run_time))
         self.assertEqual(response.status_code, 200)
         self.assertLess(run_time, 1.0)
 
@@ -470,10 +456,12 @@ class ReportTests(TestCase):
         for row in data:
             place = Place.objects.create(name=row[0], address=row[1])
             restaurant = Restaurant.objects.create(
-                place=place, serves_hot_dogs=row[2], serves_pizza=row[3]
+                place=place,
+                serves_hot_dogs=row[2],
+                serves_pizza=row[3],
             )
 
-            for count in range(row[4]):
+            for _count in range(row[4]):
                 days = None if not (total % 3 | total % 2) else total % 3
 
                 Waiter.objects.create(
@@ -485,7 +473,7 @@ class ReportTests(TestCase):
                 total += 1
 
     def test_total_accounting(self):
-        """ Test accounting total fields.
+        """Test accounting total fields.
         Nullable fields should be totalled as 0.
         """
         self.make_tiny_town()
@@ -532,33 +520,52 @@ class ReportTests(TestCase):
                 color           (CharField)
         """
         people = (
-            ('John', 'Doe', (
-                ('Will', 'Doe', 5, 'R'),
-                ('James', 'Doe', 8, ''),
-                ('Robert', 'Doe', 3, 'G'),
-            ), date.today() - timedelta(seconds=self.day * 5),
+            (
+                'John',
+                'Doe',
+                (
+                    ('Will', 'Doe', 5, 'R'),
+                    ('James', 'Doe', 8, ''),
+                    ('Robert', 'Doe', 3, 'G'),
+                ),
+                date.today() - timedelta(seconds=self.day * 5),
                 datetime.today() - timedelta(seconds=self.day),
-                dtime(hour=12)),
-            ('Maria', 'Smith', (
-                ('Susan', 'Smith', 1, 'Y'),
-                ('Karen', 'Smith', 4, 'B'),
-            ), date.today() - timedelta(seconds=self.day * 10),
+                dtime(hour=12),
+            ),
+            (
+                'Maria',
+                'Smith',
+                (
+                    ('Susan', 'Smith', 1, 'Y'),
+                    ('Karen', 'Smith', 4, 'B'),
+                ),
+                date.today() - timedelta(seconds=self.day * 10),
                 datetime.today() - timedelta(seconds=self.day * 30),
-                dtime(hour=16)),
-            ('Donald', 'King', (
-                ('Charles', 'King', None, ''),
-                ('Helen', 'King', 7, 'G'),
-                ('Mark', 'King', 2, 'Y'),
-                ('Karen', 'King', 4, 'R'),
-                ('Larry', 'King', 5, 'R'),
-                ('Lisa', 'King', 3, 'R'),
-            ), datetime.today() - timedelta(seconds=self.day * 15),
+                dtime(hour=16),
+            ),
+            (
+                'Donald',
+                'King',
+                (
+                    ('Charles', 'King', None, ''),
+                    ('Helen', 'King', 7, 'G'),
+                    ('Mark', 'King', 2, 'Y'),
+                    ('Karen', 'King', 4, 'R'),
+                    ('Larry', 'King', 5, 'R'),
+                    ('Lisa', 'King', 3, 'R'),
+                ),
+                datetime.today() - timedelta(seconds=self.day * 15),
                 datetime.today() - timedelta(seconds=self.day * 60),
-                dtime(hour=20)),
-            ('Paul', 'Nelson', (),
+                dtime(hour=20),
+            ),
+            (
+                'Paul',
+                'Nelson',
+                (),
                 date.today() - timedelta(seconds=self.day * 20),
                 datetime.today() - timedelta(seconds=self.day * 90),
-                dtime(hour=22)),
+                dtime(hour=22),
+            ),
         )
         for first, last, cn, lm, bd, ht in people:
             person = Person(
@@ -566,12 +573,16 @@ class ReportTests(TestCase):
                 last_name=last,
                 last_modifed=lm,  # DateField
                 birth_date=bd,  # DateTimeField
-                hammer_time=ht)  # TimeField
+                hammer_time=ht,
+            )  # TimeField
             person.save()
             for child_first, child_last, age, color in cn:
                 child = Child(
-                    parent=person, first_name=child_first, last_name=child_last,
-                    age=age, color=color
+                    parent=person,
+                    first_name=child_first,
+                    last_name=child_last,
+                    age=age,
+                    color=color,
                 )
                 child.save()
 
@@ -588,11 +599,8 @@ class ReportTests(TestCase):
             hammer_time     (TimeField)
         """
         self.make_people()
-        model = ContentType.objects.get(model="person",
-                                        app_label="demo_models")
-        people_report = Report.objects.create(
-            root_model=model,
-            name="A report of people")
+        model = ContentType.objects.get(model="person", app_label="demo_models")
+        people_report = Report.objects.create(root_model=model, name="A report of people")
 
         DisplayField.objects.create(
             report=people_report,
@@ -805,7 +813,6 @@ class ReportTests(TestCase):
         Test filtering TimeField field types using a relative range filter
         over time.
         """
-
         people_report = self.make_people_report()
         generate_url = reverse('generate_report', args=[people_report.id])
 
@@ -845,7 +852,7 @@ class ReportTests(TestCase):
                 report=people_report,
                 field='birth_date',
                 filter_type='relative_range',
-                filter_delta=self.day * -30
+                filter_delta=self.day * -30,
             )
 
             response = self.client.get(generate_url)
@@ -904,7 +911,9 @@ class ReportTests(TestCase):
         generate_url = reverse('generate_report', args=[report.id])
         response = self.client.get(generate_url)
 
-        data = '"data":[[1,"John","Doe",3],[3,"Donald","King",6],[2,"Maria","Smith",2],["TOTALS","","",""],["","","",11.0]]'
+        data = (
+            '"data":[[1,"John","Doe",3],[3,"Donald","King",6],[2,"Maria","Smith",2],["TOTALS","","",""],["","","",11.0]]'
+        )
 
         self.assertContains(response, data)
 
@@ -1192,17 +1201,18 @@ class ReportTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_report_builder_related_fields(self):
-        '''
+        """
         Test for Django 1.8 support via
         https://github.com/burke-software/django-report-builder/issues/144
-        '''
+        """
         ct = ContentType.objects.get(model='place')
         response = self.client.post(
-            '/report_builder/api/related_fields/', {
+            '/report_builder/api/related_fields/',
+            {
                 'model': ct.id,
                 'path': '',
-                'field': 'restaurant'
-            }
+                'field': 'restaurant',
+            },
         )
         self.assertContains(response, '"field_name":"waiter"')
         self.assertContains(response, '"verbose_name":"waiter_set"')
@@ -1378,4 +1388,4 @@ class ReportTests(TestCase):
     def test_get_config(self):
         settings.REPORT_BUILDER_ASYNC_REPORT = True
         response = self.client.get('/report_builder/api/config/')
-        self.assertContains(response,'"async_report": true')
+        self.assertContains(response, '"async_report": true')

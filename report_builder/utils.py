@@ -1,12 +1,13 @@
-from decimal import Decimal
-from itertools import chain
-from numbers import Number
-from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import FieldDoesNotExist
-from django.conf import settings
 import copy
 import datetime
 import inspect
+from decimal import Decimal
+from itertools import chain
+from numbers import Number
+
+from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import FieldDoesNotExist
 
 
 def javascript_date_format(python_date_format):
@@ -19,9 +20,10 @@ def javascript_date_format(python_date_format):
 
 
 def duplicate(obj, changes=None):
-    """ Duplicates any object including m2m fields
+    """Duplicates any object including m2m fields
     changes: any changes that should occur, example
-    changes = (('fullname','name (copy)'), ('do not copy me', ''))"""
+    changes = (('fullname','name (copy)'), ('do not copy me', ''))
+    """
     if not obj.pk:
         raise ValueError('Instance must be saved before it can be cloned.')
     duplicate = copy.copy(obj)
@@ -46,8 +48,8 @@ NUMBER = 2
 
 
 def sort_helper(x, sort_key, sort_type):
-    """ Sadly, python 3 makes it very hard to sort mixed types
-        We can work around this by forcing the types
+    """Sadly, python 3 makes it very hard to sort mixed types
+    We can work around this by forcing the types
     """
     result = x[sort_key]
     if result is None:
@@ -61,7 +63,9 @@ def sort_helper(x, sort_key, sort_type):
 
 
 def sort_data(data_list, display_field):
-    """ Sort data based on display_field settings
+    """
+
+    Sort data based on display_field settings
     data_list - 2d array of data
     display_field - report_builder.DisplayField object
     returns sorted data_list
@@ -73,14 +77,14 @@ def sort_data(data_list, display_field):
     if sample_data is None:
         sample_data = data_list[-1][position]
     sort_type = None
-    if isinstance(sample_data, (datetime.date, datetime.datetime)):
+    if isinstance(sample_data, datetime.date | datetime.datetime):
         sort_type = DATE
-    elif isinstance(sample_data, (int, float, complex)):
+    elif isinstance(sample_data, int | float | complex):
         sort_type = NUMBER
     return sorted(
         data_list,
         key=lambda x: sort_helper(x, position, sort_type),
-        reverse=is_reverse
+        reverse=is_reverse,
     )
 
 
@@ -96,7 +100,7 @@ def increment_total(display_field, data_row):
 
 
 def formatter(value, style):
-    """ Convert value to Decimal to apply numeric formats.
+    """Convert value to Decimal to apply numeric formats.
     value - The value we wish to format.
     style - report_builder.Format object
     """
@@ -119,19 +123,19 @@ def isprop(v):
 
 
 def get_properties_from_model(model_class):
-    """ Show properties from a model """
+    """Show properties from a model"""
     properties = []
     attr_names = [name for (name, value) in inspect.getmembers(model_class, isprop)]
     for attr_name in attr_names:
         if attr_name.endswith('pk'):
             attr_names.remove(attr_name)
         else:
-            properties.append(dict(label=attr_name, name=attr_name.strip('_').replace('_', ' ')))
+            properties.append({'label': attr_name, 'name': attr_name.strip('_').replace('_', ' ')})
     return sorted(properties, key=lambda k: k['label'])
 
 
 def get_relation_fields_from_model(model_class):
-    """ get related fields (m2m, fk, and reverse fk) """
+    """Get related fields (m2m, fk, and reverse fk)"""
     relation_fields = []
     all_fields_names = get_all_field_names(model_class)
     for field_name in all_fields_names:
@@ -149,18 +153,22 @@ def get_relation_fields_from_model(model_class):
 
 
 def get_all_field_names(model_class):
-    """ Restores a function from django<1.10 """
-    return list(set(chain.from_iterable(
-        (field.name, field.attname) if hasattr(field, 'attname') else (field.name,)
-        for field in model_class._meta.get_fields()
-        # For complete backwards compatibility, you may want to exclude
-        # GenericForeignKey from the results.
-        if not (field.many_to_one and field.related_model is None)
-    )))
+    """Restores a function from django<1.10"""
+    return list(
+        set(
+            chain.from_iterable(
+                (field.name, field.attname) if hasattr(field, 'attname') else (field.name,)
+                for field in model_class._meta.get_fields()
+                # For complete backwards compatibility, you may want to exclude
+                # GenericForeignKey from the results.
+                if not (field.many_to_one and field.related_model is None)
+            ),
+        ),
+    )
 
 
 def get_direct_fields_from_model(model_class):
-    """ Direct, not m2m, not FK """
+    """Direct, not m2m, not FK"""
     direct_fields = []
     all_fields_names = get_all_field_names(model_class)
     for field_name in all_fields_names:
@@ -173,13 +181,15 @@ def get_direct_fields_from_model(model_class):
 
 
 def get_custom_fields_from_model(model_class):
-    """ django-custom-fields support """
+    """django-custom-fields support"""
     if 'custom_field' in settings.INSTALLED_APPS:
         from custom_field.models import CustomField
+
         try:
             content_type = ContentType.objects.get(
                 model=model_class._meta.model_name,
-                app_label=model_class._meta.app_label)
+                app_label=model_class._meta.app_label,
+            )
         except ContentType.DoesNotExist:
             content_type = None
         custom_fields = CustomField.objects.filter(content_type=content_type)
@@ -187,7 +197,7 @@ def get_custom_fields_from_model(model_class):
 
 
 def get_model_from_path_string(root_model, path):
-    """ Return a model class for a related model
+    """Return a model class for a related model
     root_model is the class of the initial model
     path is like foo__bar where bar is related to foo
     """
