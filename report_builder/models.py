@@ -26,6 +26,9 @@ from .utils import (
     increment_total,
     formatter
 )
+import zipfile
+from io import BytesIO
+
 
 AUTH_USER_MODEL = getattr(settings, 'AUTH_USER_MODEL', 'auth.User')
 
@@ -439,27 +442,62 @@ class Report(models.Model):
         report_url = self.report_file.url
         return email_report(report_url, user=user, email=email)
 
-    def async_report_save(self, objects_list,
-                          title, header, widths, user=None, file_type="xlsx", email_to: str = None):
+    def async_report_save(self, chunks, title, header, widths, user=None, file_type=None, email_to: str = None):
         data_export = DataExportMixin()
-        if file_type == 'csv':
-            csv_file = data_export.list_to_csv_file(objects_list, title,
-                                                    header, widths)
-            title = generate_filename(title, '.csv')
-            self.report_file.save(title, ContentFile(csv_file.getvalue().encode()))
+        if file_type not in ["csv", "xlsx"]:
+            raise ValueError("file_type must be 'csv' or 'xlsx'")
+        data_export = DataExportMixin()
+
+        if len(chunks) == 1:
+            single_chunk = chunks[0]
+            if file_type == 'csv':
+                csv_file = data_export.list_to_csv_file(
+                    single_chunk, title, header, widths
+                )
+                file_name = generate_filename(title, '.csv')
+                self.report_file.save(
+                    file_name, ContentFile(csv_file.getvalue().encode())
+                )
+            elif file_type == 'xlsx':
+                xlsx_file = data_export.list_to_xlsx_file(
+                    single_chunk, title, header, widths
+                )
+                file_name = generate_filename(title, '.xlsx')
+                self.report_file.save(file_name, ContentFile(xlsx_file.read()))
+            self.report_file_creation = datetime.datetime.today()
+            self.save()
+            return
         else:
-            xlsx_file = data_export.list_to_xlsx_file(objects_list, title,
-                                                      header, widths)
-            title = generate_filename(title, '.xlsx')
-            self.report_file.save(title, ContentFile(xlsx_file.getvalue()))
-        self.report_file_creation = datetime.datetime.today()
-        self.save()
-        if email_to:
-            for email in email_to:
-                self.email_report(email=email)
-        elif getattr(settings, 'REPORT_BUILDER_EMAIL_NOTIFICATION', False):
-            if user.email:
-                self.email_report(user=user)
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+                for index, chunk in enumerate(chunks):
+                    chunk_title = f'{title}_part{index + 1}.{file_type}'
+                    if file_type == 'csv':
+                        csv_file = data_export.list_to_csv_file(
+                            chunk, chunk_title, header, widths
+                        )
+                        zip_file.writestr(chunk_title, csv_file.getvalue().encode())
+                    elif file_type == 'xlsx':
+                        xlsx_file = data_export.list_to_xlsx_file(
+                            chunk, chunk_title, header, widths
+                        )
+                        zip_file.writestr(chunk_title, xlsx_file.read())
+            zip_filename = f'{title}.zip'
+            self.report_file.save(zip_filename, ContentFile(zip_buffer.getvalue()))
+            self.report_file_creation = datetime.datetime.today()
+            self.save()
+            if email_to:
+                for email in email_to:
+                    self.email_report(email=email)
+            elif getattr(settings, 'REPORT_BUILDER_EMAIL_NOTIFICATION', False):
+                if user and user.email:
+                    self.email_report(user=user)
+
+    @staticmethod
+    def chunk_data(data, chunk_size):
+        for i in range(0, len(data), chunk_size):
+            yield data[i : i + chunk_size]
+ 
 
     def run_report(self, file_type, user=None, queryset=None, asynchronous=False, scheduled=False,
                    email_to: str = None):
@@ -478,12 +516,16 @@ class Report(models.Model):
         for field in display_fields:
             header.append(field.name)
             widths.append(field.width)
+        
+        chunk_size = 1000000
+        chunks = list(self.chunk_data(objects_list, chunk_size))
+        
         if scheduled:
-            self.async_report_save(objects_list, title, header, widths, file_type, email_to=email_to)
+            self.async_report_save(chunks, title, header, widths, user, file_type)
         elif asynchronous:
             if user is None:
                 raise Exception('Cannot run async report without a user')
-            self.async_report_save(objects_list, title, header, widths, user, file_type)
+            self.async_report_save(chunks, title, header, widths, user, file_type)
         else:
             if file_type == 'csv':
                 return data_export.list_to_csv_response(

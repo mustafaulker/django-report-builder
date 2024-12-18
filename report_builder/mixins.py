@@ -23,6 +23,8 @@ from .utils import (
     get_model_from_path_string,
     get_custom_fields_from_model,
 )
+from datetime import datetime
+
 
 DisplayField = namedtuple(
     "DisplayField",
@@ -33,7 +35,7 @@ DisplayField = namedtuple(
 def generate_filename(title, ends_with):
     title = title.split('.')[0]
     title.replace(' ', '_')
-    title += ('_' + datetime.datetime.now().strftime("%m%d_%H%M"))
+    title += ('_' + datetime.now().strftime("%m%d_%H%M"))
     if not title.endswith(ends_with):
         title += ends_with
     return title
@@ -124,22 +126,25 @@ class DataExportMixin(object):
             self.build_sheet(data, ws, header=header, widths=widths)
         return wb
 
-    def list_to_xlsx_file(self, data, title='report', header=None, widths=None):
-        """ Make 2D list into a xlsx response for download
-        data can be a 2d array or a dict of 2d arrays
-        like {'sheet_1': [['A1', 'B1']]}
-        returns a StringIO file
-        """
-        wb = self.list_to_workbook(data, title, header, widths)
-        if not title.endswith('.xlsx'):
-            title += '.xlsx'
-        with NamedTemporaryFile() as tmp:
-            wb.save(tmp.name)
-            tmp.seek(0)
-            stream = tmp.read()
-        myfile = BytesIO()
-        myfile.write(stream)
-        return myfile
+    def list_to_xlsx_file(self, data, title, header=None, widths=None):
+        """Make a list into an XLSX file."""
+        wb = Workbook()
+        title = re.sub(r'\W+', '', title)[:30]
+        ws = wb.active
+        if header:
+            ws.append(header)
+        for row in data:
+            cleaned_row = []
+            for value in row:
+                if isinstance(value, datetime):
+                    value = value.replace(tzinfo=None)
+                cleaned_row.append(value)
+            ws.append(cleaned_row)
+
+        file_buffer = BytesIO()
+        wb.save(file_buffer)
+        file_buffer.seek(0)
+        return file_buffer
 
     def list_to_csv_file(self, data, title='report', header=None, widths=None):
         """ Make a list into a csv response for download.
@@ -413,7 +418,7 @@ class DataExportMixin(object):
             defaults = {
                 None: str,
                 datetime.date: lambda: datetime.date(datetime.MINYEAR, 1, 1),
-                datetime.datetime: lambda: datetime.datetime(datetime.MINYEAR, 1, 1),
+                datetime: lambda: datetime(datetime.MINYEAR, 1, 1),
             }
 
             # Order sort fields in reverse order so that ascending, descending
