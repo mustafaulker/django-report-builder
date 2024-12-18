@@ -1,3 +1,6 @@
+## 6.6.0
+- Split files and zip them when the row count exceeds one million.
+
 ## 6.5.7
 - Remove mis-import
 

@@ -7,6 +7,9 @@ Targets sys admins and capable end users who might not be able to program or gai
 
 # News
 
+## 6.6.0
+- Split files and zip them when the row count exceeds one million.
+
 ## 6.5.7
 - Remove mis-import
 
@@ -18,14 +21,6 @@ Targets sys admins and capable end users who might not be able to program or gai
 
 - Remove six dependency
 - Replace deprecated openpyxl save_virtual_workbook func. (Cherry-picked from @tmszi's fork)
-
-## 6.5.4
-
-- Create AutoField to BigAutoField convertion migration
-
-## 6.5.3
-
-- Fix "Router with basename "report" is already registered" error
 
 ## 6.5
 
