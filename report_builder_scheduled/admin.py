@@ -12,7 +12,7 @@ class ScheduledReportAdmin(admin.ModelAdmin):
     readonly_fields = ('last_run_at',)
 
     @admin.display(
-        description=''
+        description='',
     )
     def run_report_url(self, obj):
         url = reverse('run_scheduled_report', kwargs={'pk': obj.id})

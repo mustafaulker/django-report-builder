@@ -1,12 +1,11 @@
-from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import TestCase
 from django.test.utils import override_settings
-
 from model_bakery import baker
-from report_builder.tasks import report_builder_file_async_report_save
 
+from report_builder.tasks import report_builder_file_async_report_save
 
 from ..email import email_report
 
@@ -34,7 +33,10 @@ class ViewTests(TestCase):
         email_report(report_url, user)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, email_subject)
-        self.assertEqual(mail.outbox[0].alternatives[0][0], "<p>Hello {0},</p>\n<br>\n<p>The report is <a href='{1}'>here</u></p>".format(username, report_url))
+        self.assertEqual(
+            mail.outbox[0].alternatives[0][0],
+            f"<p>Hello {username},</p>\n<br>\n<p>The report is <a href='{report_url}'>here</u></p>",
+        )
         settings.REPORT_BUILDER_EMAIL_NOTIFICATION = None
         settings.REPORT_BUILDER_EMAIL_TEMPLATE = None
         mail.outbox = []

@@ -1,33 +1,29 @@
 import datetime
 import re
 import time
+import zipfile
 from decimal import Decimal
 from functools import reduce
+from io import BytesIO
 
 from dateutil import parser
 from django import forms
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError, ObjectDoesNotExist, FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist, ValidationError
 from django.core.files.base import ContentFile
 from django.db import models
-from django.db.models import Avg, Min, Max, Count, Sum, F
+from django.db.models import Avg, Count, F, Max, Min, Sum
 from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.safestring import mark_safe
 
 from report_builder.unique_slugify import unique_slugify
+
 from .email import email_report
-from .mixins import generate_filename, DataExportMixin
-from .utils import (
-    get_model_from_path_string,
-    sort_data,
-    increment_total,
-    formatter
-)
-import zipfile
-from io import BytesIO
+from .mixins import DataExportMixin, generate_filename
+from .utils import formatter, get_model_from_path_string, increment_total, sort_data
 
 
 AUTH_USER_MODEL = getattr(settings, 'AUTH_USER_MODEL', 'auth.User')
@@ -64,12 +60,46 @@ def get_limit_choices_to_callable():
 
 
 class Report(models.Model):
-    """ A saved report with queryset and descriptive fields
-    """
+    """A saved report with queryset and descriptive fields"""
+
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(verbose_name="Short Name")
+    description = models.TextField(blank=True)
+    root_model = models.ForeignKey(ContentType, limit_choices_to=get_limit_choices_to_callable, on_delete=models.CASCADE)
+    created = models.DateField(auto_now_add=True)
+    modified = models.DateField(auto_now=True)
+    user_created = models.ForeignKey(AUTH_USER_MODEL, editable=False, blank=True, null=True, on_delete=models.SET_NULL)
+    user_modified = models.ForeignKey(
+        AUTH_USER_MODEL,
+        editable=False,
+        blank=True,
+        null=True,
+        related_name="report_modified_set",
+        on_delete=models.SET_NULL,
+    )
+    distinct = models.BooleanField(default=False)
+    report_file = models.FileField(upload_to="report_files", blank=True)
+    report_file_creation = models.DateTimeField(blank=True, null=True)
+    starred = models.ManyToManyField(
+        AUTH_USER_MODEL,
+        blank=True,
+        help_text="These users have starred this report for easy reference.",
+        related_name="report_starred_set",
+    )
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.id:
+            unique_slugify(self, self.name)
+        super().save(*args, **kwargs)
+
+    def get_absolute_url(self):
+        return reverse("report_update_view", args=(self.id,))
 
     def _get_model_manager(self):
-        """ Get manager from settings else use objects
-        """
+        """Get manager from settings else use objects"""
         model_manager = 'objects'
         if getattr(settings, 'REPORT_BUILDER_MODEL_MANAGER', False):
             model_manager = settings.REPORT_BUILDER_MODEL_MANAGER
@@ -79,43 +109,16 @@ class Report(models.Model):
     def allowed_models():
         return get_allowed_models()
 
-    name = models.CharField(max_length=255)
-    slug = models.SlugField(verbose_name="Short Name")
-    description = models.TextField(blank=True)
-    root_model = models.ForeignKey(
-        ContentType, limit_choices_to=get_limit_choices_to_callable,
-        on_delete=models.CASCADE)
-    created = models.DateField(auto_now_add=True)
-    modified = models.DateField(auto_now=True)
-    user_created = models.ForeignKey(
-        AUTH_USER_MODEL, editable=False, blank=True, null=True,
-        on_delete=models.SET_NULL)
-    user_modified = models.ForeignKey(
-        AUTH_USER_MODEL, editable=False, blank=True, null=True,
-        related_name="report_modified_set", on_delete=models.SET_NULL)
-    distinct = models.BooleanField(default=False)
-    report_file = models.FileField(upload_to="report_files", blank=True)
-    report_file_creation = models.DateTimeField(blank=True, null=True)
-    starred = models.ManyToManyField(
-        AUTH_USER_MODEL, blank=True,
-        help_text="These users have starred this report for easy reference.",
-        related_name="report_starred_set")
-
-    def __str__(self):
-        return self.name
-
-    def save(self, *args, **kwargs):
-        if not self.id:
-            unique_slugify(self, self.name)
-        super(Report, self).save(*args, **kwargs)
-
     def add_aggregates(self, queryset, display_fields=None):
         agg_funcs = {
-            'Avg': Avg, 'Min': Min, 'Max': Max, 'Count': Count, 'Sum': Sum
+            'Avg': Avg,
+            'Min': Min,
+            'Max': Max,
+            'Count': Count,
+            'Sum': Sum,
         }
         if display_fields is None:
-            display_fields = self.displayfield_set.filter(
-                aggregate__isnull=False)
+            display_fields = self.displayfield_set.filter(aggregate__isnull=False)
         for display_field in display_fields:
             if display_field.aggregate:
                 func = agg_funcs[display_field.aggregate]
@@ -129,12 +132,11 @@ class Report(models.Model):
         return self.root_model.model_class()
 
     def get_field_type(self, field_name, path=""):
-        """ Get field type for given field name.
+        """Get field type for given field name.
         Field_name is the full path of the field
         path is optional
         """
-        model = get_model_from_path_string(
-            self.root_model_class, path + field_name)
+        model = get_model_from_path_string(self.root_model_class, path + field_name)
 
         # Is it an ORM field?
         try:
@@ -143,7 +145,7 @@ class Report(models.Model):
             pass
         # Is it a property?
         field_attr = getattr(model, field_name, None)
-        if isinstance(field_attr, (property, cached_property)):
+        if isinstance(field_attr, property | cached_property):
             return "Property"
         # Is it a custom field?
         try:
@@ -154,7 +156,7 @@ class Report(models.Model):
         return "Invalid"
 
     def get_good_display_fields(self):
-        """ Returns only valid display fields """
+        """Returns only valid display fields"""
         display_fields = self.displayfield_set.all()
         bad_display_fields = []
         for display_field in display_fields:
@@ -190,9 +192,7 @@ class Report(models.Model):
                 insert_property_indexes.append(i)
             else:
                 if display_field.aggregate:
-                    display_field_paths += [
-                        display_field.field_key +
-                        '__' + display_field.aggregate.lower()]
+                    display_field_paths += [display_field.field_key + '__' + display_field.aggregate.lower()]
                 else:
                     display_field_paths += [display_field.field_key]
             i += 1
@@ -206,12 +206,8 @@ class Report(models.Model):
                 choice_lists[display_field.position] = choice_list
 
             # Build display format list
-            if (
-                    hasattr(display_field, 'display_format') and
-                    display_field.display_format
-            ):
-                display_formats[display_field.position] = \
-                    display_field.display_format
+            if hasattr(display_field, 'display_format') and display_field.display_format:
+                display_formats[display_field.position] = display_field.display_format
 
         property_filters = []
         for filter_field in self.filterfield_set.all():
@@ -286,7 +282,7 @@ class Report(models.Model):
                         break
 
         for display_field in display_fields.filter(
-                sort__gt=0
+            sort__gt=0,
         ).order_by('-sort'):
             data_list = sort_data(data_list, display_field)
 
@@ -304,8 +300,8 @@ class Report(models.Model):
                 display_totals_row[pos] = formatter(display_totals_row[pos], style)
 
             data_list += [
-                             ['TOTALS'] + (len(display_fields) - 1) * ['']
-                         ] + [display_totals_row]
+                ['TOTALS'] + (len(display_fields) - 1) * [''],
+            ] + [display_totals_row]
 
         return data_list
 
@@ -315,7 +311,7 @@ class Report(models.Model):
 
         # Check for report_builder_model_manger property on the model
         if getattr(model_class, 'report_builder_model_manager', False):
-            objects = getattr(model_class, 'report_builder_model_manager').all()
+            objects = model_class.report_builder_model_manager.all()
         else:
             # Get global model manager
             manager = report._get_model_manager()
@@ -344,8 +340,7 @@ class Report(models.Model):
                 filter_string += '__' + fs
 
             # Check for special types such as isnull
-            if (filter_field.filter_type == "isnull" and
-                    filter_field.filter_value in ["0", "False"]):
+            if filter_field.filter_type == "isnull" and filter_field.filter_value in ["0", "False"]:
                 filter_ = {filter_string: False}
             elif filter_field.filter_type == "in":
                 filter_ = {filter_string: filter_field.filter_value.split(',')}
@@ -372,11 +367,7 @@ class Report(models.Model):
         for filter_field in report.filterfield_set.order_by('position'):
             if filter_field.filter_type in ('max', 'min'):
                 func = {'max': Max, 'min': Min}[filter_field.filter_type]
-                column_name = '{0}{1}__{2}'.format(
-                    filter_field.path,
-                    filter_field.field,
-                    filter_field.field_type
-                )
+                column_name = f'{filter_field.path}{filter_field.field}__{filter_field.field_type}'
                 filter_string = filter_field.path + filter_field.field
                 annotate_args = {column_name: func(filter_string)}
                 filter_args = {column_name: F(filter_field.field)}
@@ -391,48 +382,44 @@ class Report(models.Model):
 
         return objects
 
-    def get_absolute_url(self):
-        return reverse("report_update_view", args=(self.id,))
-
     def edit(self):
         return mark_safe(
-            '<a href="{0}"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+            '<a href="{}"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                 self.get_absolute_url(),
-                static('report_builder/img/edit.svg')
-            )
+                static('report_builder/img/edit.svg'),
+            ),
         )
 
     def download_xlsx(self):
         if getattr(settings, 'REPORT_BUILDER_ASYNC_REPORT', False):
             return mark_safe(
-                '<a href="javascript:void(0)" onclick="get_async_report({0})"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+                '<a href="javascript:void(0)" onclick="get_async_report({})"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                     self.id,
-                    static('report_builder/img/download.svg')
-                )
+                    static('report_builder/img/download.svg'),
+                ),
             )
         else:
             return mark_safe(
-                '<a href="{0}"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+                '<a href="{}"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                     reverse('report_download_file', args=[self.id]),
-                    static('report_builder/img/download.svg')
-                )
+                    static('report_builder/img/download.svg'),
+                ),
             )
 
     download_xlsx.short_description = "Download"
 
     def copy_report(self):
         return mark_safe(
-            '<a href="{0}"><img style="width: 26px; margin: -6px" src="{1}"/></a>'.format(
+            '<a href="{}"><img style="width: 26px; margin: -6px" src="{}"/></a>'.format(
                 reverse('report_builder_create_copy', args=[self.id]),
-                static('report_builder/img/copy.svg')
-            )
+                static('report_builder/img/copy.svg'),
+            ),
         )
 
     copy_report.short_description = "Copy"
 
     def check_report_display_field_positions(self):
-        """ After a report is saved, make sure positions are sane
-        """
+        """After a report is saved, make sure positions are sane"""
         for i, display_field in enumerate(self.displayfield_set.all()):
             if display_field.position != i + 1:
                 display_field.position = i + 1
@@ -452,15 +439,22 @@ class Report(models.Model):
             single_chunk = chunks[0]
             if file_type == 'csv':
                 csv_file = data_export.list_to_csv_file(
-                    single_chunk, title, header, widths
+                    single_chunk,
+                    title,
+                    header,
+                    widths,
                 )
                 file_name = generate_filename(title, '.csv')
                 self.report_file.save(
-                    file_name, ContentFile(csv_file.getvalue().encode())
+                    file_name,
+                    ContentFile(csv_file.getvalue().encode()),
                 )
             elif file_type == 'xlsx':
                 xlsx_file = data_export.list_to_xlsx_file(
-                    single_chunk, title, header, widths
+                    single_chunk,
+                    title,
+                    header,
+                    widths,
                 )
                 file_name = generate_filename(title, '.xlsx')
                 self.report_file.save(file_name, ContentFile(xlsx_file.read()))
@@ -474,12 +468,18 @@ class Report(models.Model):
                     chunk_title = f'{title}_part{index + 1}.{file_type}'
                     if file_type == 'csv':
                         csv_file = data_export.list_to_csv_file(
-                            chunk, chunk_title, header, widths
+                            chunk,
+                            chunk_title,
+                            header,
+                            widths,
                         )
                         zip_file.writestr(chunk_title, csv_file.getvalue().encode())
                     elif file_type == 'xlsx':
                         xlsx_file = data_export.list_to_xlsx_file(
-                            chunk, chunk_title, header, widths
+                            chunk,
+                            chunk_title,
+                            header,
+                            widths,
                         )
                         zip_file.writestr(chunk_title, xlsx_file.read())
             zip_filename = f'{title}.zip'
@@ -497,10 +497,8 @@ class Report(models.Model):
     def chunk_data(data, chunk_size):
         for i in range(0, len(data), chunk_size):
             yield data[i : i + chunk_size]
- 
 
-    def run_report(self, file_type, user=None, queryset=None, asynchronous=False, scheduled=False,
-                   email_to: str = None):
+    def run_report(self, file_type, user=None, queryset=None, asynchronous=False, scheduled=False, email_to: str = None):
         """Generate this report file"""
         if not queryset:
             queryset = self.get_query()
@@ -508,18 +506,17 @@ class Report(models.Model):
         display_fields = self.get_good_display_fields()
 
         data_export = DataExportMixin()
-        objects_list, message = data_export.report_to_list(
-            queryset, display_fields, user, preview=False)
+        objects_list, message = data_export.report_to_list(queryset, display_fields, user, preview=False)
         title = re.sub(r'\W+', '', self.name)[:30]
         header = []
         widths = []
         for field in display_fields:
             header.append(field.name)
             widths.append(field.width)
-        
+
         chunk_size = 1000000
         chunks = list(self.chunk_data(objects_list, chunk_size))
-        
+
         if scheduled:
             self.async_report_save(chunks, title, header, widths, user, file_type)
         elif asynchronous:
@@ -528,20 +525,20 @@ class Report(models.Model):
             self.async_report_save(chunks, title, header, widths, user, file_type)
         else:
             if file_type == 'csv':
-                return data_export.list_to_csv_response(
-                    objects_list, title, header, widths)
+                return data_export.list_to_csv_response(objects_list, title, header, widths)
             else:
-                return data_export.list_to_xlsx_response(
-                    objects_list, title, header, widths)
+                return data_export.list_to_xlsx_response(objects_list, title, header, widths)
 
 
 class Format(models.Model):
-    """ A specifies a Python string format for e.g. `DisplayField`s.
-    """
+    """A specifies a Python string format for e.g. `DisplayField`s."""
+
     name = models.CharField(max_length=50, blank=True, default='')
     string = models.CharField(
-        max_length=300, blank=True, default='',
-        help_text='Python string format. Ex ${} would place a $ in front of the result.'
+        max_length=300,
+        blank=True,
+        default='',
+        help_text='Python string format. Ex ${} would place a $ in front of the result.',
     )
 
     def __str__(self):
@@ -566,20 +563,19 @@ class AbstractField(models.Model):
 
     @property
     def field_key(self):
-        """ This key can be passed to a Django ORM values_list """
+        """This key can be passed to a Django ORM values_list"""
         return self.path + self.field
 
     @property
     def choices(self):
         if self.pk:
-            model = get_model_from_path_string(
-                self.report.root_model.model_class(), self.path)
+            model = get_model_from_path_string(self.report.root_model.model_class(), self.path)
             return self.get_choices(model, self.field)
 
 
 class DisplayField(AbstractField):
-    """ A display field to show in a report. Always belongs to a Report
-    """
+    """A display field to show in a report. Always belongs to a Report"""
+
     name = models.CharField(max_length=2000)
     sort = models.IntegerField(blank=True, null=True)
     sort_reverse = models.BooleanField(verbose_name="Reverse", default=False)
@@ -593,12 +589,14 @@ class DisplayField(AbstractField):
             ('Max', 'Max'),
             ('Min', 'Min'),
         ),
-        blank=True
+        blank=True,
     )
     total = models.BooleanField(default=False)
     group = models.BooleanField(default=False)
-    display_format = models.ForeignKey(Format, blank=True, null=True,
-                                       on_delete=models.SET_NULL)
+    display_format = models.ForeignKey(Format, blank=True, null=True, on_delete=models.SET_NULL)
+
+    def __str__(self):
+        return self.name
 
     def get_choices(self, model, field_name):
         try:
@@ -616,9 +614,6 @@ class DisplayField(AbstractField):
             for choice in choices:
                 choices_dict.update({choice[0]: choice[1]})
         return choices_dict
-
-    def __str__(self):
-        return self.name
 
 
 class FilterField(AbstractField):
@@ -660,6 +655,9 @@ class FilterField(AbstractField):
     filter_value2 = models.CharField(max_length=2000, blank=True)
     exclude = models.BooleanField(default=False)
 
+    def __str__(self):
+        return self.field
+
     def clean(self):
         dt_types = ['DateField', 'DateTimeField', 'TimeField']
 
@@ -670,13 +668,12 @@ class FilterField(AbstractField):
         # field type
         if self.filter_type == 'relative_range' and self.field_type not in dt_types:
             raise ValidationError(
-                'Relative Range filtering is only currently supported for'
-                ' the following field types: {}.'.format(dt_types))
+                'Relative Range filtering is only currently supported for' f' the following field types: {dt_types}.',
+            )
 
         # Check for required relative range filter_delta
         if self.filter_type == 'relative_range' and self.filter_delta is None:
-            raise ValidationError(
-                'Relative Range filters must have value and delta inputs.')
+            raise ValidationError('Relative Range filters must have value and delta inputs.')
 
         if self.filter_type in ('max', 'min'):
             # These filter types ignore their value.
@@ -686,7 +683,7 @@ class FilterField(AbstractField):
         elif self.field_type == 'DateField' and self.filter_type != 'isnull':
             self.filter_value = str(self.parse_datetime_fields(self.filter_value))
 
-        return super(FilterField, self).clean()
+        return super().clean()
 
     def parse_datetime_fields(self, dt_type):
         """Clean and parse datetime filter_value inputs."""
@@ -711,12 +708,12 @@ class FilterField(AbstractField):
             return model_field.choices
 
     def filter_property(self, value):
-        """ Determine if passed value should be filtered or not """
+        """Determine if passed value should be filtered or not"""
         filter_field = self
         filter_type = filter_field.filter_type
         filter_value = filter_field.filter_value
         filtered = True
-        WEEKDAY_INTS = {
+        weekday_ints = {
             'monday': 0,
             'tuesday': 1,
             'wednesday': 2,
@@ -761,7 +758,7 @@ class FilterField(AbstractField):
             filtered = False
         if filter_type == 'range' and value in [int(x) for x in filter_value]:
             filtered = False
-        if filter_type == 'week_day' and WEEKDAY_INTS.get(str(filter_value).lower()) == value.weekday:
+        if filter_type == 'week_day' and weekday_ints.get(str(filter_value).lower()) == value.weekday:
             filtered = False
         if filter_type == 'isnull' and value is None:
             filtered = False
@@ -781,7 +778,8 @@ class FilterField(AbstractField):
             With:
                 self.filter_type = 'relative_range'
                 self.filter_delta = -60 * 60 * 24 * 2 (i.e. -2 days)
-            Return:
+
+        Return:
                 # a 'negative' two day range from filter_value
                 ["2017-01-01", "2017-01-03"]
         """
@@ -789,8 +787,7 @@ class FilterField(AbstractField):
 
         if self.field_type == 'DateField':
             if abs(self.filter_delta) < day:
-                raise ValidationError(
-                    'DateField delta must be at least 1 day.')
+                raise ValidationError('DateField delta must be at least 1 day.')
             first = datetime.date.today()
             second = first + datetime.timedelta(seconds=self.filter_delta)
             output_range = sorted([first, second])
@@ -820,9 +817,5 @@ class FilterField(AbstractField):
     @property
     def choices(self):
         if self.pk:
-            model = get_model_from_path_string(
-                self.report.root_model.model_class(), self.path)
+            model = get_model_from_path_string(self.report.root_model.model_class(), self.path)
             return self.get_choices(model, self.field)
-
-    def __str__(self):
-        return self.field

@@ -1,14 +1,17 @@
-from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
-from ..utils import (
-    get_properties_from_model, get_direct_fields_from_model,
-    get_relation_fields_from_model, get_model_from_path_string)
+from report_builder_demo.demo_models.models import Bar, Comment, Place, Restaurant, Waiter
+
 from ..mixins import GetFieldsMixin
-from ..models import Report, DisplayField, FilterField
-from report_builder_demo.demo_models.models import (
-    Bar, Restaurant, Waiter, Comment, Place)
+from ..models import DisplayField, FilterField, Report
+from ..utils import (
+    get_direct_fields_from_model,
+    get_model_from_path_string,
+    get_properties_from_model,
+    get_relation_fields_from_model,
+)
 
 
 class RelationUtilityFunctionTests(TestCase):
@@ -22,7 +25,7 @@ class RelationUtilityFunctionTests(TestCase):
             if hasattr(Waiter.restaurant.field, 'rel')
             else Waiter.restaurant.field.target_field.name
         )
-        self.assertEquals(field_name, "place")
+        self.assertEqual(field_name, "place")
 
     def test_get_relation_fields_from_model_does_not_change_field_name(self):
         """
@@ -41,23 +44,21 @@ class RelationUtilityFunctionTests(TestCase):
             if hasattr(Waiter.restaurant.field, 'rel')
             else Waiter.restaurant.field.target_field.name
         )
-        self.assertEquals(field_name, "place")
+        self.assertEqual(field_name, "place")
         # Waiter.restaurant.field.rel.get_related_field()
 
 
 class UtilityFunctionTests(TestCase):
-
     def setUp(self):
         self.report_ct = ContentType.objects.get_for_model(Report)
-        self.report = Report.objects.create(
-            name="foo report",
-            root_model=self.report_ct)
+        self.report = Report.objects.create(name="foo report", root_model=self.report_ct)
         self.filter_field = FilterField.objects.create(
             report=self.report,
             field="X",
             field_verbose="stuff",
             filter_type='contains',
-            filter_value='Lots of spam')
+            filter_value='Lots of spam',
+        )
 
     def get_fields_names(self, fields):
         return [field.name for field in fields]
@@ -68,7 +69,7 @@ class UtilityFunctionTests(TestCase):
         self.assertTrue('displayfield' in names or 'report_builder:displayfield' in names)
         self.assertTrue('filterfield' in names or 'report_builder:filterfield' in names)
         self.assertTrue('root_model' in names)
-        self.assertEquals(len(names), 7)
+        self.assertEqual(len(names), 7)
 
     def test_get_model_from_path_string(self):
         result = get_model_from_path_string(Restaurant, 'waiter__name')
@@ -79,7 +80,6 @@ class UtilityFunctionTests(TestCase):
         result = get_model_from_path_string(Restaurant, 'place__serves_pizza')
         self.assertEqual(result, Place)
 
-
     def test_get_direct_fields_from_model(self):
         fields = get_direct_fields_from_model(Report)
         names = self.get_fields_names(fields)
@@ -87,10 +87,10 @@ class UtilityFunctionTests(TestCase):
         self.assertTrue('description' in names)
         self.assertTrue('distinct' in names)
         self.assertTrue('id' in names)
-        self.assertEquals(len(names), 9)
+        self.assertEqual(len(names), 9)
 
     def test_get_fields(self):
-        """ Test GetFieldsMixin.get_fields """
+        """Test GetFieldsMixin.get_fields"""
         obj = GetFieldsMixin()
         obj.get_fields(
             Bar,
@@ -98,12 +98,12 @@ class UtilityFunctionTests(TestCase):
         )
 
     def test_get_gfk_fields_from_model(self):
-        fields = get_direct_fields_from_model(Comment)
+        get_direct_fields_from_model(Comment)
 
     def test_get_properties_from_model(self):
         properties = get_properties_from_model(DisplayField)
-        self.assertEquals(properties[0]['label'], 'choices')
-        self.assertEquals(properties[1]['label'], 'choices_dict')
+        self.assertEqual(properties[0]['label'], 'choices')
+        self.assertEqual(properties[1]['label'], 'choices_dict')
 
     def test_filter_property(self):
         # Not a very complete test - only tests one type of filter
@@ -111,18 +111,16 @@ class UtilityFunctionTests(TestCase):
         self.assertTrue(result)
 
     def test_custom_global_model_manager(self):
-        """ test for custom global model manager """
+        """Test for custom global model manager"""
         if getattr(settings, 'REPORT_BUILDER_MODEL_MANAGER', False):
-            self.assertEquals(
-                self.report._get_model_manager(),
-                settings.REPORT_BUILDER_MODEL_MANAGER)
+            self.assertEqual(self.report._get_model_manager(), settings.REPORT_BUILDER_MODEL_MANAGER)
 
     def test_custom_model_manager(self):
-        """ test for custom model manager """
+        """Test for custom model manager"""
         if getattr(
-                self.report.root_model.model_class(),
-                'report_builder_model_manager',
-                True
+            self.report.root_model.model_class(),
+            'report_builder_model_manager',
+            True,
         ):
             # change setup to use actual field and value
             self.filter_field.field = 'name'
@@ -131,4 +129,4 @@ class UtilityFunctionTests(TestCase):
             # coverage of get_query
             objects = self.report.get_query()
             # expect custom manager to return correct object with filters
-            self.assertEquals(objects[0], self.report)
+            self.assertEqual(objects[0], self.report)

@@ -1,3 +1,9 @@
+## 6.6.2
+- Run pyupgrade and django-upgrade. Format the whole project using pre-commit & ruff
+
+## 6.6.0
+- Split files and zip them when the row count exceeds one million.
+
 ## 6.5.7
 - Remove mis-import
 

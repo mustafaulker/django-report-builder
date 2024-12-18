@@ -8,14 +8,16 @@ from django.test import TestCase
 from django.urls import reverse
 
 from report_builder.models import Report
+
 from .models import ScheduledReport
 from .tasks import report_builder_run_scheduled_report
+
 
 User = get_user_model()
 
 
 IS_D18 = False
-if django.VERSION[0] is 1 and django.VERSION[1] is 8:
+if django.VERSION[0] == 1 and django.VERSION[1] == 8:
     IS_D18 = True
 
 
@@ -51,7 +53,8 @@ class ScheduledReportTests(TestCase):
 
 
 class AdminViewTests(TestCase):
-    """ Basic sanity check that admin views work """
+    """Basic sanity check that admin views work"""
+
     @skipIf(IS_D18, "Django 1.8 does not support force_login")
     def test_scheduled_report_admin(self):
         url = reverse('admin:report_builder_scheduled_scheduledreport_changelist')
