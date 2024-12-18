@@ -23,6 +23,8 @@ from .utils import (
     get_model_from_path_string,
     get_custom_fields_from_model,
 )
+from datetime import datetime
+
 
 DisplayField = namedtuple(
     "DisplayField",
@@ -33,7 +35,7 @@ DisplayField = namedtuple(
 def generate_filename(title, ends_with):
     title = title.split('.')[0]
     title.replace(' ', '_')
-    title += ('_' + datetime.datetime.now().strftime("%m%d_%H%M"))
+    title += ('_' + datetime.now().strftime("%m%d_%H%M"))
     if not title.endswith(ends_with):
         title += ends_with
     return title
@@ -132,7 +134,13 @@ class DataExportMixin(object):
         if header:
             ws.append(header)
         for row in data:
-            ws.append(row)
+            cleaned_row = []
+            for value in row:
+                if isinstance(value, datetime):
+                    value = value.replace(tzinfo=None)
+                cleaned_row.append(value)
+            ws.append(cleaned_row)
+
         file_buffer = BytesIO()
         wb.save(file_buffer)
         file_buffer.seek(0)
@@ -410,7 +418,7 @@ class DataExportMixin(object):
             defaults = {
                 None: str,
                 datetime.date: lambda: datetime.date(datetime.MINYEAR, 1, 1),
-                datetime.datetime: lambda: datetime.datetime(datetime.MINYEAR, 1, 1),
+                datetime: lambda: datetime(datetime.MINYEAR, 1, 1),
             }
 
             # Order sort fields in reverse order so that ascending, descending
