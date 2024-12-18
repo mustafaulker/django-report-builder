@@ -7,6 +7,9 @@ Targets sys admins and capable end users who might not be able to program or gai
 
 # News
 
+## 6.6.2
+- Run pyupgrade and django-upgrade. Format the whole project using pre-commit & ruff
+
 ## 6.6.0
 - Split files and zip them when the row count exceeds one million.
 
