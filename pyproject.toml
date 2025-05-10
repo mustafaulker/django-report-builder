@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-report-builder"
-version = "6.6.2"
+version = "6.6.3"
 description = "Query and Report builder for Django ORM"
 authors = ["David Burke <david@burkesoftware.com>"]
 packages = [
