@@ -48,8 +48,8 @@ class ReportAdmin(admin.ModelAdmin):
     class Media:
         js = [
             'admin/js/jquery.init.js',
-            static('report_builder/js/report_list.js'),
-            static('report_builder/js/report_form.js'),
+            'report_builder/js/report_list.js',
+            'report_builder/js/report_form.js',
         ]
 
     def response_add(self, request, obj, post_url_continue=None):
