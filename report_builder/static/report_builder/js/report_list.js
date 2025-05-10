@@ -6,25 +6,18 @@ $ = django.jQuery;
 path_prefix = ""
 
 // get current path
-current_path =  window.location.pathname;
+current_path = window.location.pathname;
 
 // where is "/report_builder"?
-root_index = current_path.indexOf( "/report_builder" );
+root_index = current_path.indexOf("/report_builder");
 
 // other than 0?
-if ( root_index > 0 )
-{
-
+if (root_index > 0) {
     // yes.  Get all text from start to that location, store it as path_prefix.
-    path_prefix = current_path.substring( 0, root_index );
-
-}
-else
-{
-
+    path_prefix = current_path.substring(0, root_index);
+} else {
     // no - set path_prefix to "".
     path_prefix = "";
-
 }
 
 /* Taken from https://docs.djangoproject.com/en/dev/ref/contrib/csrf/ */
@@ -51,25 +44,26 @@ function csrfSafeMethod(method) {
 
 function ajax_add_star(event, url) {
 
-	// Setup CSRF Token
-	var csrftoken = getCookie('csrftoken');
-	$.ajaxSetup({
-		crossDomain: false, // obviates need for sameOrigin test
-		beforeSend: function(xhr, settings) {
-			if (!csrfSafeMethod(settings.type)) {
-				xhr.setRequestHeader("X-CSRFToken", csrftoken);
-			}
-		}
-	});
+    // Setup CSRF Token
+    var csrftoken = getCookie('csrftoken');
+    $.ajaxSetup({
+        crossDomain: false, // obviates need for sameOrigin test
+        beforeSend: function (xhr, settings) {
+            if (!csrfSafeMethod(settings.type)) {
+                xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            }
+        }
+    });
 
     $.post(
         url,
-	{},
-        function(data){
-	    if (data == 'True' ) {
-		$(event).html('<img style="width: 26px; margin: -6px;" src="/static/report_builder/img/star.png">');
-	    } else {
-		$(event).html('<img style="width: 26px; margin: -6px;" src="/static/report_builder/img/unstar.png">');
-	    }
+        {},
+        function (data) {
+            if (data == 'True') {
+                $(event).html('<img style="width: 26px; margin: -6px;" src="/report_builder/img/star.png">');
+            } else {
+                $(event).html('<img style="width: 26px; margin: -6px;" src="/report_builder/img/unstar.png">');
+            }
         }
-    );}
+    );
+}
